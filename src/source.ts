@@ -28,7 +28,20 @@ export class SourceManager {
     return { w: this.video.videoWidth, h: this.video.videoHeight };
   }
 
-  async use(kind: SourceKind): Promise<void> {
+  /**
+   * Adopts a stream captured elsewhere — the phone's camera, arriving over
+   * WebRTC. Kept separate from `use` because there is nothing to request here;
+   * the stream is handed to us when the peer connection completes.
+   */
+  async usePhone(stream: MediaStream): Promise<void> {
+    this.teardown();
+    this.stream = stream;
+    this.video.srcObject = stream;
+    await this.video.play();
+    this.kind = 'phone';
+  }
+
+  async use(kind: Exclude<SourceKind, 'phone'>): Promise<void> {
     if (kind === this.kind && kind === 'shapes') return;
     this.teardown();
 

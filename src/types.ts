@@ -2,7 +2,21 @@ export type RGB = readonly [number, number, number];
 
 export type BankId = 'ink' | 'neon' | 'trail' | 'optic' | 'signal';
 
-export type SourceKind = 'camera' | 'screen' | 'shapes';
+export type SourceKind = 'phone' | 'camera' | 'screen' | 'shapes';
+
+export type Facing = 'user' | 'environment';
+
+/**
+ * WebRTC signalling, carried over the same Supabase channel as everything else.
+ * The phone holds the camera so it is always the offerer; the stage answers.
+ * `need-offer` covers the stage restarting mid-session — it has no way to
+ * recover a stream on its own, so it asks for a fresh one.
+ */
+export type RtcSignal =
+  | { kind: 'offer'; sdp: string }
+  | { kind: 'answer'; sdp: string }
+  | { kind: 'ice'; candidate: RTCIceCandidateInit }
+  | { kind: 'need-offer' };
 
 export type StageAction = 'record' | 'snapshot' | 'fullscreen';
 
@@ -75,7 +89,8 @@ export type SyncMessage =
   | { t: 'state'; state: StageState; ts: number }
   | { t: 'patch'; patch: Partial<StageState>; ts: number }
   | { t: 'action'; action: StageAction; ts: number }
-  | { t: 'hello'; role: 'stage' | 'remote'; ts: number };
+  | { t: 'hello'; role: 'stage' | 'remote'; ts: number }
+  | { t: 'rtc'; signal: RtcSignal; from: 'stage' | 'remote'; ts: number };
 
 export interface Sync {
   readonly name: 'local' | 'supabase';

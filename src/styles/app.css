@@ -264,6 +264,11 @@ input[type="range"] {
   gap: 10px;
 }
 
+.wide {
+  width: 100%;
+  margin-top: 10px;
+}
+
 #record.recording {
   border-color: var(--danger);
   background: rgba(255, 77, 106, 0.16);

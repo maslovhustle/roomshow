@@ -7,7 +7,8 @@ import './styles/app.css';
 import { consumePairing, hasSupabase, normaliseCode } from './config';
 import { BANKS, bankOf, banksLooks } from './presets';
 import { createSync, msg } from './sync';
-import type { BankId, Params, StageState, Sync } from './types';
+import { PhonePublisher } from './webrtc';
+import type { BankId, Params, SourceKind, StageState, Sync } from './types';
 
 // Before anything else: if the stage handed us its Supabase config in the URL
 // fragment, store it and scrub the URL.
@@ -22,6 +23,7 @@ const els = {
   intensity: must<HTMLInputElement>('intensity'),
   intensityValue: must<HTMLSpanElement>('intensityValue'),
   sources: must<HTMLDivElement>('sources'),
+  flip: must<HTMLButtonElement>('flip'),
   mirror: must<HTMLButtonElement>('mirror'),
   mic: must<HTMLButtonElement>('mic'),
   record: must<HTMLButtonElement>('record'),
@@ -31,6 +33,7 @@ const els = {
 const code = normaliseCode(new URLSearchParams(location.search).get('code'));
 
 let sync: Sync | null = null;
+let publisher: PhonePublisher | null = null;
 let state: StageState = {
   preset: 'neon',
   intensity: 0.65,
@@ -71,7 +74,14 @@ async function boot(): Promise<void> {
       : 'This device has no Supabase keys, so it cannot reach the stage. Open the stage, tap "copy link", and open that link here.');
   }
 
+  publisher = new PhonePublisher(sync);
+  publisher.onFailed = (reason) => showNotice(reason);
+
   sync.onMessage((message) => {
+    if (message.t === 'rtc') {
+      if (message.from === 'stage') void publisher?.handle(message.signal);
+      return;
+    }
     if (message.t !== 'state') return;
     lastSeen = Date.now();
     state = { ...state, ...message.state };
@@ -138,15 +148,52 @@ function wireControls(): void {
 
   for (const button of els.sources.querySelectorAll('button')) {
     button.onclick = () => {
-      const kind = button.dataset.source;
-      if (kind === 'camera' || kind === 'screen' || kind === 'shapes') patch({ source: kind });
+      const kind = button.dataset.source as SourceKind | undefined;
+      if (!kind) return;
+      if (kind === 'phone') void startPhone();
+      else {
+        publisher?.stop();
+        els.flip.hidden = true;
+        patch({ source: kind });
+      }
     };
   }
+
+  els.flip.onclick = () => void publisher?.flip().catch((err: unknown) => {
+    showNotice(`Could not switch camera: ${describe(err)}`);
+  });
 
   els.mirror.onclick = () => patch({ mirror: state.mirror ? 0 : 1 });
   els.mic.onclick = () => patch({ audio: !state.audio });
   els.record.onclick = () => sync?.send(msg.action('record'));
   els.snapshot.onclick = () => sync?.send(msg.action('snapshot'));
+}
+
+/**
+ * The phone is the camera. Capture starts here and the picture reaches the
+ * stage over a direct peer connection — only the handshake goes through
+ * Supabase.
+ */
+async function startPhone(): Promise<void> {
+  if (!publisher) return;
+  try {
+    // Always rebuild. Re-tapping is how a user recovers after the stage
+    // reloaded, and starting on top of a live connection would leak the old one.
+    publisher.stop();
+    await publisher.start();
+    els.flip.hidden = false;
+    els.notice.hidden = true;
+    patch({ source: 'phone' });
+  } catch (err) {
+    // A denied permission must not leave the button looking armed.
+    publisher.stop();
+    els.flip.hidden = true;
+    showNotice(`Camera: ${describe(err)}`);
+  }
+}
+
+function describe(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 function patch(next: Partial<StageState>): void {

@@ -9,7 +9,7 @@
 
 import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
 import { hasSupabase, loadConfig, type Config } from './config';
-import type { StageAction, StageState, Sync, SyncMessage } from './types';
+import type { RtcSignal, StageAction, StageState, Sync, SyncMessage } from './types';
 
 class Emitter {
   private handlers = new Set<(message: SyncMessage) => void>();
@@ -145,4 +145,6 @@ export const msg = {
   patch: (patch: Partial<StageState>): SyncMessage => ({ t: 'patch', patch, ts: Date.now() }),
   action: (action: StageAction): SyncMessage => ({ t: 'action', action, ts: Date.now() }),
   hello: (role: 'stage' | 'remote'): SyncMessage => ({ t: 'hello', role, ts: Date.now() }),
+  rtc: (signal: RtcSignal, from: 'stage' | 'remote'): SyncMessage =>
+    ({ t: 'rtc', signal, from, ts: Date.now() }),
 };

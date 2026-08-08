@@ -14,6 +14,7 @@ import { WebGLStylizer } from './stylizer/webgl';
 import { SourceManager } from './source';
 import { CanvasRecorder, snapshot } from './recorder';
 import { AudioReactor, SILENCE } from './audio';
+import { StageReceiver } from './webrtc';
 import type { StageAction, StageState, Sync, SyncMessage } from './types';
 
 const MAX_WIDTH = 1920;
@@ -47,6 +48,7 @@ const state: StageState = {
 };
 
 let sync: Sync;
+let receiver: StageReceiver;
 
 async function boot(): Promise<void> {
   els.code.textContent = code;
@@ -73,8 +75,20 @@ async function boot(): Promise<void> {
   sync = await createSync(code);
   els.status.textContent = sync.name === 'supabase' ? 'remote: online' : 'remote: same-device only';
   els.status.dataset.mode = sync.name;
+  receiver = new StageReceiver(sync);
+  receiver.onStream = (stream) => {
+    state.source = 'phone';
+    void source.usePhone(stream);
+    sync.send(msg.state(state));
+  };
+  receiver.onFailed = (reason) => fail(reason);
+
   sync.onMessage(onMessage);
   sync.send(msg.state(state));
+  // If a phone was already publishing when this stage reloaded, its picture is
+  // gone and only the phone can rebuild it. Asking once at boot is safe — there
+  // is no offer in flight yet — and a phone that is not publishing ignores it.
+  receiver.requestOffer();
 
   if (!hasSupabase()) {
     fail('No Supabase keys — the remote will only reach this browser. Add them on the home page.');
@@ -99,6 +113,9 @@ function onMessage(message: SyncMessage): void {
     case 'action':
       void runAction(message.action);
       break;
+    case 'rtc':
+      if (message.from === 'remote') void receiver.handle(message.signal);
+      break;
     case 'state':
       break;
   }
@@ -106,14 +123,22 @@ function onMessage(message: SyncMessage): void {
 
 async function applyPatch(patch: Partial<StageState>): Promise<void> {
   if (patch.source && patch.source !== state.source) {
-    try {
-      await source.use(patch.source);
-      state.source = patch.source;
-    } catch (err) {
-      fail(`camera: ${message(err)}`);
-      // Never leave the projector dark because a permission was denied.
-      await source.use('shapes');
-      state.source = 'shapes';
+    if (patch.source === 'phone') {
+      // Nothing to open locally, and nothing to ask for: the phone always sends
+      // an offer as it starts publishing, so requesting one here would race its
+      // own answer and leave the connection stuck in `stable`.
+      state.source = 'phone';
+    } else {
+      if (state.source === 'phone') receiver.stop();
+      try {
+        await source.use(patch.source);
+        state.source = patch.source;
+      } catch (err) {
+        fail(`camera: ${message(err)}`);
+        // Never leave the projector dark because a permission was denied.
+        await source.use('shapes');
+        state.source = 'shapes';
+      }
     }
   }
   if (patch.audio !== undefined && patch.audio !== state.audio) {

@@ -61,12 +61,15 @@ and 2M messages a month, against roughly 30 messages a minute for a busy set.
 
 ```
 phone (remote.html) ──patch──▶ Supabase Realtime ──▶ laptop (stage.html)
-       ▲                                                    │
+       ▲                       (control + SDP/ICE)          │
        └──────────────── state ─────────────────────────────┘
+       │
+       └── phone camera ══════ WebRTC, direct ═════════════▶ stage
+                                (video never touches Supabase)
 
-camera / screen / shapes ──▶ WebGL shader chain ──▶ canvas ──▶ projector
-                                     ▲                   │
-                              mic FFT (local)      MediaRecorder ──▶ .webm
+phone / laptop cam / screen / shapes ──▶ WebGL shader ──▶ canvas ──▶ projector
+                                              ▲               │
+                                       mic FFT (local)   MediaRecorder ──▶ .webm
 ```
 
 The stage owns the state. The remote only sends patches, and every applied patch is
@@ -83,6 +86,33 @@ dead phone away from a black screen.
 | `M` | mic reactivity |
 | `R` / `S` | record / snapshot |
 | `F` / `H` | fullscreen / hide HUD |
+
+## Phone camera
+
+Tapping **This phone** on the remote captures the phone's camera and sends it to
+the stage over a direct peer connection. Only the handshake — the SDP and ICE
+candidates — travels through Supabase; the video takes the shortest route the
+two devices can negotiate, which on a venue wifi is straight across the LAN.
+
+The phone holds the camera, so it is always the offerer and the stage always
+answers. A fixed role assignment means there is no glare case to resolve. Two
+consequences fell out of testing rather than design:
+
+- The stage must **not** request an offer when a patch says `source: phone` —
+  the phone has already sent one, and asking again races its own answer into a
+  `stable` connection, which throws and kills the stream. It asks once at boot
+  instead, which recovers a session where the stage reloaded mid-set: the phone
+  re-offers and the picture returns without anyone touching it.
+- **Flip camera** swaps the track on the sender rather than renegotiating, so
+  the picture does not drop while switching between the crowd and the operator.
+
+Back camera by default: the point is to film the room, not whoever is holding
+the phone.
+
+STUN only, no TURN. Same-network is the supported path. A relay would cover
+symmetric NAT — typically a phone on cellular while the laptop sits behind a
+hotel router — but relays bill per gigabyte and this build has no server, so
+that case reports a legible failure on the phone instead of a black projector.
 
 ## Looks
 

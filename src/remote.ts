@@ -35,7 +35,7 @@ const code = normaliseCode(new URLSearchParams(location.search).get('code'));
 let sync: Sync | null = null;
 let publisher: PhonePublisher | null = null;
 let state: StageState = {
-  preset: 'neon',
+  preset: 'comic',
   intensity: 0.65,
   source: 'shapes',
   mirror: 0,

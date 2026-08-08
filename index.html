@@ -3,62 +3,46 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <meta name="theme-color" content="#07060c">
   <title>roomshow — turn the room into the show</title>
 </head>
 <body class="landing">
   <main class="card">
-    <h1>roomshow</h1>
-    <p class="lede">Point a camera at the room, restyle it live, project it back. Runs entirely in the browser.</p>
-
-    <section class="step">
-      <h2 class="step-title"><span class="step-num">1</span> Start a session</h2>
-
-      <label for="code">Session code</label>
-      <input id="code" type="text" class="mono" maxlength="8" autocomplete="off" spellcheck="false">
-
-      <button class="primary" id="openStage">Open stage →</button>
-
-      <div class="row-2" style="margin-top:10px">
-        <button id="openRemote">Open remote</button>
-        <button id="newCode">New code</button>
+    <div class="brand">
+      <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+        <defs>
+          <linearGradient id="rs" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#25e6d0"/>
+            <stop offset="1" stop-color="#b95cff"/>
+          </linearGradient>
+        </defs>
+        <g fill="none" stroke="url(#rs)" stroke-linecap="round">
+          <path d="M15 48a19 19 0 1 1 34 0" stroke-width="5"/>
+          <path d="M25 45a10 10 0 1 1 14 0" stroke-width="5"/>
+        </g>
+        <circle cx="32" cy="31" r="3.6" fill="url(#rs)"/>
+      </svg>
+      <div>
+        <h1>roomshow</h1>
+        <p class="lede">Point a phone at the room. Project it back, restyled, live.</p>
       </div>
+    </div>
 
-      <p class="hint">
-        Open the <strong>stage</strong> on the machine wired to the projector, then open the
-        <strong>remote</strong> on your phone.
-      </p>
-    </section>
+    <label for="code">Session code</label>
+    <input id="code" type="text" class="mono" maxlength="8" autocomplete="off" spellcheck="false">
 
-    <!-- Not a collapsed panel: without these keys the phone cannot reach the
-         stage at all, so hiding the one required setup step behind a summary
-         made it read as an optional footnote. -->
-    <section class="step">
-      <h2 class="step-title">
-        <span class="step-num">2</span> Link your phone
-        <span id="linkPill" class="pill">not linked</span>
-      </h2>
+    <button class="primary" id="openStage">Open stage →</button>
 
-      <p class="hint">
-        The remote talks to the stage over a free Supabase Realtime channel. No tables, no schema —
-        just a message bus. Create a project at
-        <a href="https://supabase.com/dashboard" target="_blank" rel="noreferrer">supabase.com</a>,
-        then copy its URL and anon key from <strong>Project Settings → API Keys</strong>.
-        Both stay in this browser's localStorage.
-      </p>
+    <div class="row-2" style="margin-top:10px">
+      <button id="openRemote">Open remote</button>
+      <button id="newCode">New code</button>
+    </div>
 
-      <label for="supabaseUrl">Project URL</label>
-      <input id="supabaseUrl" type="url" placeholder="https://xxxxx.supabase.co" autocomplete="off" spellcheck="false">
-
-      <label for="supabaseAnonKey">Anon key (the long public one)</label>
-      <input id="supabaseAnonKey" type="text" placeholder="eyJhbGciOi…" autocomplete="off" spellcheck="false">
-
-      <div class="row-2" style="margin-top:14px">
-        <button id="saveKeys">Save keys</button>
-        <button id="testKeys">Test connection</button>
-      </div>
-
-      <p class="hint" id="keyStatus"></p>
-    </section>
+    <p class="hint">
+      Open the <strong>stage</strong> on the machine wired to the projector, then open the
+      <strong>remote</strong> on your phone with the same code.
+    </p>
   </main>
 
   <script type="module" src="/src/landing.ts"></script>

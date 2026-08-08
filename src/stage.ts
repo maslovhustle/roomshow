@@ -39,7 +39,7 @@ const audio = new AudioReactor();
 const recorder = new CanvasRecorder(canvas);
 
 const state: StageState = {
-  preset: 'neon',
+  preset: 'comic',
   intensity: 0.65,
   source: 'shapes',
   mirror: 0,

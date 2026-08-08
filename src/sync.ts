@@ -122,23 +122,6 @@ export async function createSync(code: string): Promise<Sync> {
   return new LocalSync(code).connect();
 }
 
-/**
- * Joins a throwaway channel and leaves again, so the setup screen can prove the
- * keys work instead of leaving it to be discovered mid-event. Surfaces the real
- * error rather than falling back the way createSync does.
- */
-export async function testSupabase(): Promise<{ ok: boolean; detail: string }> {
-  const cfg = loadConfig();
-  if (!hasSupabase(cfg)) return { ok: false, detail: 'Enter a project URL and anon key first.' };
-  try {
-    const probe = await new SupabaseSync(`probe-${crypto.randomUUID()}`, cfg).connect();
-    probe.close();
-    return { ok: true, detail: 'Connected. The remote will reach the stage from any device.' };
-  } catch (err) {
-    return { ok: false, detail: err instanceof Error ? err.message : String(err) };
-  }
-}
-
 // Keeps the wire format in one place.
 export const msg = {
   state: (state: StageState): SyncMessage => ({ t: 'state', state, ts: Date.now() }),

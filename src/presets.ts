@@ -37,6 +37,7 @@ export const PARAM_DEFAULTS: Params = {
   // must leave the image alone.
   sat: 0.5,
   contrast: 0.5,
+  smooth: 0,     // flattens detail into regions before quantisation
   tintA: [0.05, 0.02, 0.12],
   tintB: [0.98, 0.42, 0.86],
 };
@@ -54,6 +55,47 @@ const look = <const Id extends string>(
   params: { ...PARAM_DEFAULTS, ...params },
   audio: { bass: {}, energy: {}, ...audio },
 });
+
+// Cel — flat colour regions under ink outlines: the illustration end of what a
+// shader can honestly reach. `smooth` does the work; posterising a sharp frame
+// gives confetti, while flattening first gives painted areas with clean
+// boundaries. These will not turn anyone into an anime character — that needs
+// the image re-synthesised — but they are the closest the engine gets.
+const CEL = [
+  look('comic', 'Comic', {
+    smooth: 0.7, poster: 0.72, edge: 0.6, sat: 0.62, contrast: 0.6, vignette: 0.3,
+  }, { bass: { poster: -0.25 }, energy: { edge: 0.2 } }),
+
+  look('celshade', 'Cel Shade', {
+    smooth: 0.85, poster: 0.8, edge: 0.5, sat: 0.7, contrast: 0.58,
+  }, { bass: { poster: -0.3 }, energy: { sat: 0.15 } }),
+
+  look('manga', 'Manga', {
+    smooth: 0.6, poster: 0.9, edge: 0.85, sat: 0, contrast: 0.7, vignette: 0.35,
+  }, { bass: { contrast: -0.2 }, energy: { edge: 0.12 } }),
+
+  look('woodblock', 'Woodblock', {
+    smooth: 0.5, poster: 0.82, edge: 0.55, duotone: 0.7, contrast: 0.6,
+    tintA: [0.06, 0.08, 0.22], tintB: [0.96, 0.92, 0.8],
+  }, { bass: { poster: -0.25 }, energy: { edge: 0.2 } }),
+
+  look('screenprint', 'Screenprint', {
+    smooth: 0.75, poster: 0.85, edge: 0.35, sat: 0.8, contrast: 0.62,
+  }, { bass: { poster: -0.3 }, energy: { sat: 0.12 } }),
+
+  look('popart', 'Pop Art', {
+    smooth: 0.7, poster: 0.88, halftone: 0.45, edge: 0.4, sat: 0.85, contrast: 0.6,
+  }, { bass: { halftone: -0.3 }, energy: { edge: 0.2 } }),
+
+  look('gouache', 'Gouache', {
+    smooth: 0.9, poster: 0.6, edge: 0.25, sat: 0.68, grain: 0.18, vignette: 0.35,
+  }, { bass: { poster: -0.2 }, energy: { grain: 0.2 } }),
+
+  look('riso', 'Risograph', {
+    smooth: 0.65, poster: 0.78, duotone: 0.85, grain: 0.25, edge: 0.3,
+    tintA: [0.1, 0.06, 0.3], tintB: [1.0, 0.45, 0.55],
+  }, { bass: { poster: -0.28 }, energy: { grain: 0.25 } }),
+];
 
 const INK = [
   look('raw', 'Raw', {
@@ -535,6 +577,7 @@ const SIGNAL = [
 ];
 
 export const BANKS = [
+  { id: 'cel', name: 'Cel', looks: CEL },
   { id: 'ink', name: 'Ink', looks: INK },
   { id: 'neon', name: 'Neon', looks: NEON },
   { id: 'trail', name: 'Trail', looks: TRAIL },

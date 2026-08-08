@@ -48,6 +48,7 @@ uniform float pGrain;
 uniform float pSlice;
 uniform float pSat;
 uniform float pContrast;
+uniform float pSmooth;
 uniform vec3  uTintA;
 uniform vec3  uTintB;
 
@@ -62,6 +63,26 @@ float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
 
 float hash(vec2 p) {
   return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+}
+
+// Flattens detail into regions before quantisation. Posterising a sharp frame
+// straight away turns noise and texture into confetti; blurring first is what
+// makes it read as painted areas with clean boundaries, which is the whole
+// basis of a cel-shaded look. Edges are still taken from the sharp source, so
+// the outlines stay crisp over the flattened colour.
+vec3 sampleBase(vec2 uv) {
+  if (pSmooth <= 0.001) return sampleSrc(uv);
+  vec2 r = pSmooth * 3.5 / uRes;
+  vec3 sum = sampleSrc(uv) * 2.0;
+  sum += sampleSrc(uv + vec2( r.x, 0.0));
+  sum += sampleSrc(uv + vec2(-r.x, 0.0));
+  sum += sampleSrc(uv + vec2( 0.0,  r.y));
+  sum += sampleSrc(uv + vec2( 0.0, -r.y));
+  sum += sampleSrc(uv + r * 0.7);
+  sum += sampleSrc(uv - r * 0.7);
+  sum += sampleSrc(uv + vec2( r.x, -r.y) * 0.7);
+  sum += sampleSrc(uv + vec2(-r.x,  r.y) * 0.7);
+  return sum / 10.0;
 }
 
 vec2 kaleido(vec2 uv, float amt, float t) {
@@ -109,9 +130,9 @@ void main() {
   // RGB split. Cheap, and reads as "signal" rather than "filter" on a projector.
   vec2 split = vec2(pChroma * 0.014, 0.0);
   vec3 col = vec3(
-    sampleSrc(uv + split).r,
-    sampleSrc(uv).g,
-    sampleSrc(uv - split).b
+    sampleBase(uv + split).r,
+    sampleBase(uv).g,
+    sampleBase(uv - split).b
   );
 
   if (pEdge > 0.001) {
@@ -204,7 +225,7 @@ void main() { gl_FragColor = texture2D(uTex, vUv); }`;
 const SCALAR_PARAMS = [
   'mirror', 'kaleido', 'pixel', 'chroma', 'edge', 'poster',
   'hue', 'duotone', 'feedback', 'warp', 'spin', 'glow', 'vignette',
-  'invert', 'halftone', 'scanline', 'grain', 'slice', 'sat', 'contrast',
+  'invert', 'halftone', 'scanline', 'grain', 'slice', 'sat', 'contrast', 'smooth',
 ] as const satisfies readonly ScalarParam[];
 
 type UniformName =

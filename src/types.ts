@@ -1,6 +1,6 @@
 export type RGB = readonly [number, number, number];
 
-export type BankId = 'ink' | 'neon' | 'trail' | 'optic' | 'signal';
+export type BankId = 'cel' | 'ink' | 'neon' | 'trail' | 'optic' | 'signal';
 
 export type SourceKind = 'phone' | 'camera' | 'screen' | 'shapes';
 
@@ -44,6 +44,8 @@ export interface Params {
   sat: number;
   /** Neutral at 0.5, not 0. */
   contrast: number;
+  /** Flattens detail into regions before quantisation. */
+  smooth: number;
   tintA: RGB;
   tintB: RGB;
 }

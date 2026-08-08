@@ -38,21 +38,19 @@ The remote reaches the stage over a Supabase Realtime broadcast channel. Without
 keys it falls back to `BroadcastChannel`, which only reaches tabs in the same
 browser — enough to develop against, useless in a room.
 
-The project's own Supabase URL and publishable key ship in `.env`, so the app
-works with no setup screen. Both are publishable by design — Supabase sends them
-to every browser that loads any app built on it, and they grant nothing on their
-own. Point the app at a different project from the home page and that choice,
-stored in `localStorage`, overrides the built-in default.
+The project's own Supabase URL and publishable key ship in `.env`, so there is
+no setup screen at all — the home page is a session code and two buttons. Both
+values are publishable by design: Supabase sends them to every browser that
+loads any app built on it, and they grant nothing on their own. A `localStorage`
+entry still overrides them for anyone pointing at another project.
 
 No tables, no row-level security, no schema: the channel is just a message bus,
 and the stage holds the only copy of the state.
 
-`localStorage` is per-origin *and* per-device, so the phone starts with none of
-that config, and nobody is hand-typing a 200-character anon key in a dark room.
-The stage's **copy link** button therefore emits a pairing URL with the config in
-the fragment; the remote stores it and scrubs the fragment on load. The fragment
-never reaches a server, and the anon key is public by design — it is the value
-shipped to every browser in any Supabase app.
+The stage's **copy link** button still emits a pairing URL carrying the config in
+the fragment, which the remote stores and then scrubs. That only matters for a
+custom project now that defaults ship in the bundle, but it is what keeps a
+phone from ever needing a key typed into it.
 
 Free tier ceilings are far above what one event needs — 200 concurrent connections
 and 2M messages a month, against roughly 30 messages a minute for a busy set.
@@ -116,13 +114,19 @@ that case reports a legible failure on the phone instead of a black projector.
 
 ## Looks
 
-Forty looks in five banks of eight: **Ink** (print and graphic), **Neon** (edge
-and glow), **Trail** (frame feedback), **Optic** (the polar fold), **Signal**
-(glitch and analog).
+Forty-eight looks in six banks of eight: **Cel** (flat colour under ink lines),
+**Ink** (print and graphic), **Neon** (edge and glow), **Trail** (frame
+feedback), **Optic** (the polar fold), **Signal** (glitch and analog).
 
-Banks exist because forty in a flat list is twenty rows of scrolling on a phone
-in a dark room, which defeats the point of having a remote. Eight fits one
-thumb-reach screen and maps onto the number keys.
+Banks exist because a flat list of that length is two dozen rows of scrolling on
+a phone in a dark room, which defeats the point of having a remote. Eight fits
+one thumb-reach screen and maps onto the number keys.
+
+**Cel** is the illustration end of what a shader can honestly reach, and it
+needed a new primitive: `smooth` blurs the frame before quantisation. Posterising
+a sharp frame turns noise and texture into confetti, while flattening first gives
+painted regions with clean boundaries. Edges are still taken from the sharp
+source, so the ink lines stay crisp over the flattened colour.
 
 The bank a phone is browsing is deliberately local, not shared: a VJ wants to
 scroll another bank before committing to it, and the stage rebroadcasts its
@@ -131,9 +135,9 @@ The remote follows the stage into a new bank only when the look actually
 changes, and marks the bank holding the live look with a dot.
 
 A look is a parameter set plus an audio routing table, both data. The shader
-exposes twenty scalars — geometry (`kaleido`, `mirror`, `slice`), sampling
+exposes twenty-one scalars — geometry (`kaleido`, `mirror`, `slice`), sampling
 (`pixel`, `chroma`), tone (`poster`, `invert`, `sat`, `contrast`, `duotone`,
-`hue`), texture (`halftone`, `scanline`, `grain`), motion (`feedback`, `warp`,
+`hue`, `smooth`), texture (`halftone`, `scanline`, `grain`), motion (`feedback`, `warp`,
 `spin`), and finish (`edge`, `glow`, `vignette`).
 
 ## Layout
@@ -160,9 +164,11 @@ refresh rate on the laptop's own GPU, offline, for free — but it restyles what
 camera sees, it does not reimagine it, and there is no text prompt.
 
 That is a hard ceiling, not a tuning problem. A shader computes each pixel from
-its neighbours and has no idea there is a person in frame, so "Claymation" or
-"3D Render" are not reachable at any parameter setting — those need the image
-re-synthesised. The looks here are VJ looks: Halftone, Datamosh, Wireframe.
+its neighbours and has no idea there is a person in frame, so "Claymation" or an
+anime portrait are not reachable at any parameter setting — those need the image
+re-synthesised. The **Cel** bank goes as far as this approach can toward that
+aesthetic, and stops well short of it: flat regions and ink outlines, not
+characters.
 
 Prompt-driven restyling needs real-time img2img diffusion (StreamDiffusion / SD-Turbo,
 1–4 denoise steps, 512px). That is a server with a GPU on it, which is the thing this

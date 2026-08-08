@@ -1,6 +1,6 @@
 export type RGB = readonly [number, number, number];
 
-export type BankId = 'cel' | 'film' | 'ink' | 'neon' | 'trail' | 'optic' | 'signal';
+export type BankId = 'cel' | 'film' | 'raster' | 'ink' | 'neon' | 'trail' | 'optic' | 'signal';
 
 export type SourceKind = 'phone' | 'camera' | 'screen' | 'shapes';
 
@@ -56,6 +56,15 @@ export interface Params {
   swirl: number;
   emboss: number;
   halation: number;
+  /** Glyph raster from a brightness ramp. */
+  ascii: number;
+  /** Square dot grid with dark gutters. */
+  led: number;
+  ripple: number;
+  /** Neutral at 0.5: below pinches inward, above bulges outward. */
+  pinch: number;
+  /** Multi-pass bloom, applied after the main shader. */
+  bloom: number;
   /** Four stops of the gradient map, dark to light. */
   tintA: RGB;
   tintB: RGB;

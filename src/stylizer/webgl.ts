@@ -56,6 +56,12 @@ uniform float pGamma;
 uniform float pSwirl;
 uniform float pEmboss;
 uniform float pHalation;
+uniform float pAscii;
+uniform float pLed;
+uniform float pRipple;
+uniform float pPinch;
+uniform sampler2D uGlyphs;
+uniform float uGlyphCount;
 uniform vec3  uTintA;
 uniform vec3  uTintB;
 uniform vec3  uTintC;
@@ -149,6 +155,22 @@ void main() {
     uv.x += (r - 0.5) * pSlice * 0.25 * step(0.72, r);
   }
 
+  {
+    // Pinch and bulge are one control: below the midpoint the frame is drawn
+    // toward the centre, above it the centre pushes out.
+    float k = (pPinch - 0.5) * 1.8;
+    if (k > 0.002 || k < -0.002) {
+      vec2 p = uv - 0.5;
+      uv = p * pow(clamp(length(p) * 2.0, 0.001, 1.6), k) + 0.5;
+    }
+  }
+
+  if (pRipple > 0.001) {
+    vec2 p = uv - 0.5;
+    float r = length(p);
+    uv += (p / max(r, 0.0001)) * sin(r * 42.0 - uTime * 3.2) * pRipple * 0.022;
+  }
+
   if (pSwirl > 0.001) {
     // Twist falls off with radius, so the centre of frame stays readable while
     // the edges smear — the opposite way round looks like a broken lens.
@@ -236,6 +258,30 @@ void main() {
     col = floor(col * levels + b + 0.5) / levels;
   }
 
+  if (pLed > 0.001) {
+    // Square grid with dark gutters, radius driven by cell brightness. Distinct
+    // from halftone, which is a rotated screen with no gaps.
+    float cells = mix(220.0, 44.0, pLed);
+    vec2 grid = vec2(cells, max(8.0, floor(cells * uRes.y / uRes.x)));
+    vec3 cell = sampleBase((floor(vUv * grid) + 0.5) / grid);
+    float d = length(fract(vUv * grid) - 0.5);
+    col = mix(col, cell * smoothstep(0.46, 0.30, d) * 1.3, pLed);
+  }
+
+  if (pAscii > 0.001) {
+    // One glyph per cell, chosen by the cell's mean brightness from a ramp that
+    // runs from sparse to dense. Character cells are taller than wide, so the
+    // vertical count is scaled to keep the type from stretching.
+    float cells = mix(190.0, 46.0, pAscii);
+    vec2 grid = vec2(cells, max(6.0, floor(cells * uRes.y / uRes.x * 0.52)));
+    vec2 cellId = floor(vUv * grid);
+    vec2 cellUv = fract(vUv * grid);
+    vec3 cell = sampleBase((cellId + 0.5) / grid);
+    float idx = floor(luma(cell) * (uGlyphCount - 0.001));
+    float glyph = texture2D(uGlyphs, vec2((idx + cellUv.x) / uGlyphCount, 1.0 - cellUv.y)).r;
+    col = mix(col, cell * glyph, pAscii);
+  }
+
   if (pHalation > 0.001) {
     // Bleed only what is already bright, warm it, and add it back. Real
     // halation is light scattering in the film base, so it must not touch the
@@ -296,23 +342,68 @@ void main() {
   gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }`;
 
-const FRAG_COPY = `
+// Bloom runs as its own chain at half resolution: extract what is bright,
+// blur it separably, screen it back over the scene. The single-pass `glow`
+// boost cannot do this — it can only brighten a pixel using itself, so light
+// never spreads into its neighbours, which is the entire point of a bloom.
+const FRAG_BRIGHT = `
 precision mediump float;
 varying vec2 vUv;
 uniform sampler2D uTex;
-void main() { gl_FragColor = texture2D(uTex, vUv); }`;
+uniform float uThreshold;
+void main() {
+  vec3 c = texture2D(uTex, vUv).rgb;
+  float l = dot(c, vec3(0.299, 0.587, 0.114));
+  gl_FragColor = vec4(c * smoothstep(uThreshold, uThreshold + 0.25, l), 1.0);
+}`;
+
+// Nine-tap gaussian collapsed to five texture reads by sampling between texels
+// and letting bilinear filtering average each pair.
+const FRAG_BLUR = `
+precision mediump float;
+varying vec2 vUv;
+uniform sampler2D uTex;
+uniform vec2 uDir;
+void main() {
+  vec3 sum = texture2D(uTex, vUv).rgb * 0.227027;
+  sum += (texture2D(uTex, vUv + uDir * 1.3846).rgb
+        + texture2D(uTex, vUv - uDir * 1.3846).rgb) * 0.3162162;
+  sum += (texture2D(uTex, vUv + uDir * 3.2308).rgb
+        + texture2D(uTex, vUv - uDir * 3.2308).rgb) * 0.0702702;
+  gl_FragColor = vec4(sum, 1.0);
+}`;
+
+const FRAG_COMPOSITE = `
+precision mediump float;
+varying vec2 vUv;
+uniform sampler2D uScene;
+uniform sampler2D uBloom;
+uniform float uAmount;
+void main() {
+  vec3 scene = texture2D(uScene, vUv).rgb;
+  if (uAmount < 0.001) { gl_FragColor = vec4(scene, 1.0); return; }
+  vec3 glow = texture2D(uBloom, vUv).rgb * uAmount * 1.6;
+  // Screen rather than add: bloom should lift the highlights, not clip them
+  // into flat white.
+  gl_FragColor = vec4(1.0 - (1.0 - scene) * (1.0 - clamp(glow, 0.0, 1.0)), 1.0);
+}`;
 
 const SCALAR_PARAMS = [
   'mirror', 'kaleido', 'pixel', 'chroma', 'edge', 'poster',
   'hue', 'duotone', 'feedback', 'warp', 'spin', 'glow', 'vignette',
   'invert', 'halftone', 'scanline', 'grain', 'slice', 'sat', 'contrast', 'smooth',
   'dither', 'threshold', 'temp', 'gamma', 'swirl', 'emboss', 'halation',
+  'ascii', 'led', 'ripple', 'pinch',
 ] as const satisfies readonly ScalarParam[];
+
+// Ramp from sparse to dense. Rendered into a strip once at startup and sampled
+// per cell, which is cheaper and sharper than any analytic glyph.
+const ASCII_RAMP = ' .:-=+*#%@';
 
 const TINTS = ['tintA', 'tintB', 'tintC', 'tintD'] as const;
 
 type UniformName =
-  | 'uSrc' | 'uPrev' | 'uRes' | 'uCover' | 'uTime'
+  | 'uSrc' | 'uPrev' | 'uRes' | 'uCover' | 'uTime' | 'uGlyphs' | 'uGlyphCount'
   | `u${Capitalize<(typeof TINTS)[number]>}`
   | `p${Capitalize<(typeof SCALAR_PARAMS)[number]>}`;
 
@@ -324,12 +415,23 @@ interface Target {
 export class WebGLStylizer implements Stylizer {
   private gl: WebGLRenderingContext | null = null;
   private progMain!: WebGLProgram;
-  private progCopy!: WebGLProgram;
+  private progBright!: WebGLProgram;
+  private progBlur!: WebGLProgram;
+  private progComposite!: WebGLProgram;
   private quad!: WebGLBuffer;
   private srcTex!: WebGLTexture;
+  private glyphTex!: WebGLTexture;
   private uniforms!: Record<UniformName, WebGLUniformLocation | null>;
-  private copyUniform: WebGLUniformLocation | null = null;
+  private uBright!: { tex: WebGLUniformLocation | null; threshold: WebGLUniformLocation | null };
+  private uBlur!: { tex: WebGLUniformLocation | null; dir: WebGLUniformLocation | null };
+  private uComp!: {
+    scene: WebGLUniformLocation | null;
+    bloom: WebGLUniformLocation | null;
+    amount: WebGLUniformLocation | null;
+  };
   private targets: Target[] = [];
+  private bloom: Target[] = [];
+  private bloomSize = { w: 2, h: 2 };
   private index = 0;
   private source: TexImageSource | null = null;
   private sourceSize = { w: 1, h: 1 };
@@ -350,7 +452,9 @@ export class WebGLStylizer implements Stylizer {
     this.gl = gl;
 
     this.progMain = buildProgram(gl, VERT, FRAG_MAIN);
-    this.progCopy = buildProgram(gl, VERT, FRAG_COPY);
+    this.progBright = buildProgram(gl, VERT, FRAG_BRIGHT);
+    this.progBlur = buildProgram(gl, VERT, FRAG_BLUR);
+    this.progComposite = buildProgram(gl, VERT, FRAG_COMPOSITE);
 
     const quad = gl.createBuffer();
     if (!quad) throw new Error('Could not allocate a vertex buffer');
@@ -359,8 +463,27 @@ export class WebGLStylizer implements Stylizer {
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
 
     this.srcTex = createTexture(gl);
+    this.glyphTex = createTexture(gl);
+    gl.bindTexture(gl.TEXTURE_2D, this.glyphTex);
+    // The atlas is drawn top-down by canvas 2D and sampled with an explicit
+    // flip in the shader, so it must not be flipped again on upload.
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, buildGlyphAtlas());
+
     this.uniforms = collectUniforms(gl, this.progMain);
-    this.copyUniform = gl.getUniformLocation(this.progCopy, 'uTex');
+    this.uBright = {
+      tex: gl.getUniformLocation(this.progBright, 'uTex'),
+      threshold: gl.getUniformLocation(this.progBright, 'uThreshold'),
+    };
+    this.uBlur = {
+      tex: gl.getUniformLocation(this.progBlur, 'uTex'),
+      dir: gl.getUniformLocation(this.progBlur, 'uDir'),
+    };
+    this.uComp = {
+      scene: gl.getUniformLocation(this.progComposite, 'uScene'),
+      bloom: gl.getUniformLocation(this.progComposite, 'uBloom'),
+      amount: gl.getUniformLocation(this.progComposite, 'uAmount'),
+    };
 
     this.resize(this.canvas.width, this.canvas.height);
     this.ready = true;
@@ -381,11 +504,18 @@ export class WebGLStylizer implements Stylizer {
       this.canvas.width = w;
       this.canvas.height = h;
     }
-    for (const target of this.targets) {
+    for (const target of [...this.targets, ...this.bloom]) {
       gl.deleteFramebuffer(target.fbo);
       gl.deleteTexture(target.tex);
     }
     this.targets = [createTarget(gl, w, h), createTarget(gl, w, h)];
+    // Half resolution: a bloom is a wide blur, so the detail thrown away here is
+    // detail the blur would have destroyed anyway, and it quarters the cost.
+    this.bloomSize = { w: Math.max(2, w >> 1), h: Math.max(2, h >> 1) };
+    this.bloom = [
+      createTarget(gl, this.bloomSize.w, this.bloomSize.h),
+      createTarget(gl, this.bloomSize.w, this.bloomSize.h),
+    ];
     this.index = 0;
   }
 
@@ -420,6 +550,10 @@ export class WebGLStylizer implements Stylizer {
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, read.tex);
     gl.uniform1i(this.uniforms.uPrev, 1);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, this.glyphTex);
+    gl.uniform1i(this.uniforms.uGlyphs, 2);
+    gl.uniform1f(this.uniforms.uGlyphCount, ASCII_RAMP.length);
 
     const [coverX, coverY] = coverScale(this.sourceSize, w, h);
     gl.uniform2f(this.uniforms.uRes, w, h);
@@ -436,30 +570,69 @@ export class WebGLStylizer implements Stylizer {
 
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
-    // Blit to the visible canvas.
+    if (params.bloom > 0.001) this.renderBloom(write);
+
+    // Composite to the visible canvas.
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, w, h);
-    gl.useProgram(this.progCopy);
-    this.bindQuad(this.progCopy);
+    gl.useProgram(this.progComposite);
+    this.bindQuad(this.progComposite);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, write.tex);
-    gl.uniform1i(this.copyUniform, 0);
+    gl.uniform1i(this.uComp.scene, 0);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, this.bloom[0]!.tex);
+    gl.uniform1i(this.uComp.bloom, 1);
+    gl.uniform1f(this.uComp.amount, params.bloom);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
     this.index = 1 - this.index;
   }
 
+  /** Bright pass, then one separable gaussian, leaving the result in bloom[0]. */
+  private renderBloom(scene: Target): void {
+    const gl = this.gl!;
+    const [a, b] = [this.bloom[0]!, this.bloom[1]!];
+    const { w, h } = this.bloomSize;
+    gl.viewport(0, 0, w, h);
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, a.fbo);
+    gl.useProgram(this.progBright);
+    this.bindQuad(this.progBright);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, scene.tex);
+    gl.uniform1i(this.uBright.tex, 0);
+    gl.uniform1f(this.uBright.threshold, 0.6);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+    gl.useProgram(this.progBlur);
+    this.bindQuad(this.progBlur);
+    gl.uniform1i(this.uBlur.tex, 0);
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, b.fbo);
+    gl.bindTexture(gl.TEXTURE_2D, a.tex);
+    gl.uniform2f(this.uBlur.dir, 1 / w, 0);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, a.fbo);
+    gl.bindTexture(gl.TEXTURE_2D, b.tex);
+    gl.uniform2f(this.uBlur.dir, 0, 1 / h);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+
   dispose(): void {
     const gl = this.gl;
     if (!gl) return;
-    for (const target of this.targets) {
+    for (const target of [...this.targets, ...this.bloom]) {
       gl.deleteFramebuffer(target.fbo);
       gl.deleteTexture(target.tex);
     }
     gl.deleteTexture(this.srcTex);
+    gl.deleteTexture(this.glyphTex);
     gl.deleteBuffer(this.quad);
-    gl.deleteProgram(this.progMain);
-    gl.deleteProgram(this.progCopy);
+    for (const program of [this.progMain, this.progBright, this.progBlur, this.progComposite]) {
+      gl.deleteProgram(program);
+    }
     this.ready = false;
   }
 
@@ -481,13 +654,21 @@ function collectUniforms(
   program: WebGLProgram,
 ): Record<UniformName, WebGLUniformLocation | null> {
   const names: UniformName[] = [
-    'uSrc', 'uPrev', 'uRes', 'uCover', 'uTime',
+    'uSrc', 'uPrev', 'uRes', 'uCover', 'uTime', 'uGlyphs', 'uGlyphCount',
     ...TINTS.map((key) => `u${capitalise(key)}` as UniformName),
     ...SCALAR_PARAMS.map((key) => `p${capitalise(key)}` as UniformName),
   ];
-  return Object.fromEntries(
+  const found = Object.fromEntries(
     names.map((name) => [name, gl.getUniformLocation(program, name)]),
   ) as Record<UniformName, WebGLUniformLocation | null>;
+
+  // A name missing from `names` yields `undefined`, which WebGL treats as a
+  // no-op location — the uniform silently keeps its default and the effect
+  // quietly does the wrong thing. Turn that into a crash at startup instead.
+  for (const name of names) {
+    if (!(name in found)) throw new Error(`Uniform ${name} was never looked up`);
+  }
+  return found;
 }
 
 /** Maps canvas UV onto source UV so the frame fills the screen without stretching. */
@@ -497,6 +678,26 @@ function coverScale(src: { w: number; h: number }, w: number, h: number): [numbe
   return srcAspect > dstAspect
     ? [dstAspect / srcAspect, 1]
     : [1, srcAspect / dstAspect];
+}
+
+/** Renders the ramp into a one-row strip of square cells. */
+function buildGlyphAtlas(): HTMLCanvasElement {
+  const cell = 24;
+  const canvas = document.createElement('canvas');
+  canvas.width = cell * ASCII_RAMP.length;
+  canvas.height = cell;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('2D canvas is not available for the glyph atlas');
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#fff';
+  ctx.font = `bold ${cell - 4}px ui-monospace, "SF Mono", Menlo, monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (let i = 0; i < ASCII_RAMP.length; i++) {
+    ctx.fillText(ASCII_RAMP[i]!, i * cell + cell / 2, cell / 2 + 1);
+  }
+  return canvas;
 }
 
 function createTexture(gl: WebGLRenderingContext): WebGLTexture {

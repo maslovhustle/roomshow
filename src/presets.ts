@@ -45,6 +45,12 @@ export const PARAM_DEFAULTS: Params = {
   swirl: 0,
   emboss: 0,
   halation: 0,
+  ascii: 0,      // glyph raster
+  led: 0,        // square dot grid
+  ripple: 0,
+  pinch: 0.5,    // neutral
+  bloom: 0,      // multi-pass, unlike the single-pass `glow`
+
   tintA: [0.05, 0.02, 0.12],
   tintB: [0.98, 0.42, 0.86],
   tintC: [0.98, 0.42, 0.86],
@@ -178,6 +184,48 @@ const FILM = [
     tintA: [0.01, 0.05, 0.14], tintB: [0.05, 0.22, 0.45],
     tintC: [0.35, 0.62, 0.82], tintD: [0.92, 0.97, 1.0],
   }, { bass: { dither: 0.3 }, energy: { grain: 0.2 } }),
+];
+
+// Raster — the frame rebuilt out of a grid. ASCII picks one glyph per cell from
+// a brightness ramp; LED is a square dot matrix with dark gutters, which is a
+// different thing from halftone's rotated, gapless screen. Both read the cell's
+// mean rather than the pixel under them, so they stay legible in motion.
+const RASTER = [
+  look('ascii', 'ASCII', {
+    ascii: 0.55, contrast: 0.62, sat: 0.35, bloom: 0.25, vignette: 0.4,
+  }, { bass: { ascii: 0.3 }, energy: { bloom: 0.3 } }),
+
+  look('terminal', 'Terminal', {
+    ascii: 0.68, duotone: 0.95, contrast: 0.7, bloom: 0.45, scanline: 0.35,
+    tintA: [0.0, 0.03, 0.01], tintB: [0.05, 0.35, 0.12],
+    tintC: [0.25, 0.85, 0.35], tintD: [0.75, 1.0, 0.8],
+  }, { bass: { bloom: 0.4 }, energy: { ascii: 0.2 } }),
+
+  look('ledwall', 'LED Wall', {
+    led: 0.45, bloom: 0.55, sat: 0.75, contrast: 0.58,
+  }, { bass: { bloom: 0.45 }, energy: { led: 0.2 } }),
+
+  look('jumbotron', 'Jumbotron', {
+    led: 0.28, bloom: 0.7, sat: 0.8, contrast: 0.62, vignette: 0.45,
+  }, { bass: { bloom: 0.3, led: 0.2 }, energy: { sat: 0.12 } }),
+
+  look('bloomsoft', 'Soft Focus', {
+    bloom: 0.75, smooth: 0.35, sat: 0.6, contrast: 0.46, halation: 0.3,
+  }, { bass: { bloom: 0.25 }, energy: { halation: 0.35 } }),
+
+  look('lava', 'Lava', {
+    ripple: 0.55, feedback: 0.7, warp: 0.3, bloom: 0.5, duotone: 0.8,
+    tintA: [0.05, 0.0, 0.02], tintB: [0.45, 0.06, 0.02],
+    tintC: [0.95, 0.35, 0.05], tintD: [1.0, 0.92, 0.55],
+  }, { bass: { ripple: 0.4, bloom: 0.35 }, energy: { warp: 0.3 } }),
+
+  look('fisheye', 'Fisheye', {
+    pinch: 0.86, bloom: 0.3, sat: 0.62, contrast: 0.58, vignette: 0.6,
+  }, { bass: { pinch: 0.1 }, energy: { bloom: 0.3 } }),
+
+  look('blackhole', 'Black Hole', {
+    pinch: 0.14, swirl: 0.45, feedback: 0.78, bloom: 0.6, spin: 0.3,
+  }, { bass: { swirl: 0.4 }, energy: { bloom: 0.35 } }),
 ];
 
 const INK = [
@@ -662,6 +710,7 @@ const SIGNAL = [
 export const BANKS = [
   { id: 'cel', name: 'Cel', looks: CEL },
   { id: 'film', name: 'Film', looks: FILM },
+  { id: 'raster', name: 'Raster', looks: RASTER },
   { id: 'ink', name: 'Ink', looks: INK },
   { id: 'neon', name: 'Neon', looks: NEON },
   { id: 'trail', name: 'Trail', looks: TRAIL },

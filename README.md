@@ -114,14 +114,27 @@ that case reports a legible failure on the phone instead of a black projector.
 
 ## Looks
 
-Fifty-six looks in seven banks of eight: **Cel** (flat colour under ink lines),
-**Film** (stock emulation), **Ink** (print and graphic), **Neon** (edge and
-glow), **Trail** (frame feedback), **Optic** (the polar fold), **Signal**
-(glitch and analog).
+Sixty-four looks in eight banks of eight: **Cel** (flat colour under ink lines),
+**Film** (stock emulation), **Raster** (the frame rebuilt from a grid), **Ink**
+(print and graphic), **Neon** (edge and glow), **Trail** (frame feedback),
+**Optic** (the polar fold), **Signal** (glitch and analog).
 
 Banks exist because a flat list of that length is two dozen rows of scrolling on
 a phone in a dark room, which defeats the point of having a remote. Eight fits
 one thumb-reach screen and maps onto the number keys.
+
+**Raster** rebuilds the frame out of a grid. **ASCII** picks one glyph per cell
+from a brightness ramp rendered into a texture atlas at startup — cheaper and
+far sharper than any analytic glyph. **LED** is a square dot matrix with dark
+gutters, which is a different thing from halftone's rotated, gapless screen.
+Both read the cell's mean rather than the pixel beneath them, so they stay
+legible while the room moves.
+
+The bank also needed a real **bloom**, and that meant a second render chain:
+extract what is bright, blur it separably at half resolution, screen it back.
+The single-pass `glow` could never do this — it can only brighten a pixel using
+itself, so light never spreads into its neighbours, which is the entire point.
+Both still exist; they are different tools.
 
 **Film** is where the four-stop **gradient map** earns its keep. A two-colour
 ramp can only tint; a film stock's character lives in how its midtones drift,
@@ -147,12 +160,12 @@ The remote follows the stage into a new bank only when the look actually
 changes, and marks the bank holding the live look with a dot.
 
 A look is a parameter set plus an audio routing table, both data. The shader
-exposes twenty-eight scalars plus four gradient stops — geometry (`kaleido`,
-`mirror`, `slice`, `swirl`), sampling (`pixel`, `chroma`, `smooth`), tone
-(`poster`, `invert`, `sat`, `contrast`, `gamma`, `temp`, `threshold`, `hue`,
-`duotone`), texture (`halftone`, `dither`, `scanline`, `grain`, `emboss`),
-motion (`feedback`, `warp`, `spin`), and finish (`edge`, `glow`, `halation`,
-`vignette`).
+exposes thirty-two scalars plus four gradient stops — geometry (`kaleido`,
+`mirror`, `slice`, `swirl`, `ripple`, `pinch`), sampling (`pixel`, `chroma`,
+`smooth`), tone (`poster`, `invert`, `sat`, `contrast`, `gamma`, `temp`,
+`threshold`, `hue`, `duotone`), raster (`halftone`, `dither`, `scanline`,
+`ascii`, `led`, `grain`, `emboss`), motion (`feedback`, `warp`, `spin`), and
+finish (`edge`, `glow`, `bloom`, `halation`, `vignette`).
 
 That vocabulary is deliberately the standard one — the same operations any
 image-processing chain exposes. Quality here comes from having the right

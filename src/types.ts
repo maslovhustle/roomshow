@@ -1,6 +1,6 @@
 export type RGB = readonly [number, number, number];
 
-export type BankId = 'cel' | 'film' | 'raster' | 'lens' | 'ink' | 'neon' | 'trail' | 'optic' | 'signal';
+export type BankId = 'cel' | 'film' | 'medium' | 'raster' | 'lens' | 'ink' | 'neon' | 'trail' | 'optic' | 'signal';
 
 export type SourceKind = 'phone' | 'camera' | 'screen' | 'shapes';
 
@@ -71,6 +71,14 @@ export interface Params {
   aberration: number;
   /** Keeps only what changed since the previous frame. */
   motion: number;
+  /** Chroma subsampling: smears colour horizontally while luma stays sharp. */
+  bleed: number;
+  /** Per-scanline tape jitter, mostly steady with occasional torn lines. */
+  tracking: number;
+  /** Overlays the synthesised medium texture — paper fibre, tape wear. */
+  paper: number;
+  /** Displaces by the medium texture, breaking edges along the fibre. */
+  distress: number;
   /** Four stops of the gradient map, dark to light. */
   tintA: RGB;
   tintB: RGB;

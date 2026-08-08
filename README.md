@@ -114,15 +114,40 @@ that case reports a legible failure on the phone instead of a black projector.
 
 ## Looks
 
-Seventy-two looks in nine banks of eight: **Cel** (flat colour under ink lines),
+Eighty looks in ten banks of eight: **Cel** (flat colour under ink lines),
 **Film** (stock emulation), **Raster** (the frame rebuilt from a grid),
-**Lens** (optics and sensor), **Ink** (print and graphic), **Neon** (edge and
-glow), **Trail** (frame feedback), **Optic** (the polar fold), **Signal**
-(glitch and analog).
+**Lens** (optics and sensor), **Medium** (the stock itself), **Ink** (print and
+graphic), **Neon** (edge and glow), **Trail** (frame feedback), **Optic** (the
+polar fold), **Signal** (glitch and analog).
 
 Banks exist because a flat list of that length is two dozen rows of scrolling on
 a phone in a dark room, which defeats the point of having a remote. Eight fits
 one thumb-reach screen and maps onto the number keys.
+
+**Medium** is the one that stops the output looking like a browser filter, and
+the reason is worth stating plainly: every other operation here applies the same
+arithmetic to every pixel. That is exactly what a CSS filter does, and exactly
+why the result reads as one. A physical medium is uneven — paper has fibre, tape
+has wear, emulsion clumps — and that unevenness is most of the impression.
+
+So the medium is synthesised once at startup: wrapping value noise over several
+octaves, plus a horizontally stretched octave so the grain has direction. It is
+laid on with **overlay**, not multiply, because multiply only darkens and reads
+as dirt, while overlay keeps the midpoint neutral so the stock can both lift and
+deepen. The same texture drives `distress` as a displacement, so edges break
+along the grain instead of along a smooth curve.
+
+That texture is generated, not scanned. Libraries built around real scanned
+paper have a grain that noise does not reproduce exactly; this gets the
+structural quality without shipping any assets.
+
+The bank also fixed **VHS**, which had been uniform pixelation plus a flat RGB
+shift — the failure in miniature. Real tape carries luminance and colour on
+separate carriers with a fraction of the bandwidth on colour, so `bleed` splits
+into YIQ and averages only the chroma across a horizontal run: detail stays put
+while colour lags and overshoots. `tracking` jitters per scanline, and most
+lines sit steady while a few tear badly, because uniform jitter reads as a
+filter and unevenness reads as a machine struggling.
 
 **Lens** is what the glass and the sensor do rather than what the paint does.
 `aberration` grows with distance from centre, so the middle of frame stays clean
@@ -172,13 +197,13 @@ The remote follows the stage into a new bank only when the look actually
 changes, and marks the bank holding the live look with a dot.
 
 A look is a parameter set plus an audio routing table, both data. The shader
-exposes thirty-five scalars plus four gradient stops — geometry (`kaleido`,
+exposes thirty-nine scalars plus four gradient stops — geometry (`kaleido`,
 `mirror`, `slice`, `swirl`, `ripple`, `pinch`), sampling (`pixel`, `chroma`,
 `aberration`, `smooth`), tone (`poster`, `invert`, `sat`, `contrast`, `gamma`,
 `temp`, `threshold`, `hue`, `duotone`), raster (`halftone`, `dither`,
 `scanline`, `ascii`, `led`, `grain`, `emboss`), motion (`feedback`, `warp`,
-`spin`, `motion`), and finish (`edge`, `glow`, `bloom`, `streak`, `halation`,
-`vignette`).
+`spin`, `motion`), medium (`paper`, `distress`, `bleed`, `tracking`), and finish
+(`edge`, `glow`, `bloom`, `streak`, `halation`, `vignette`).
 
 That vocabulary is deliberately the standard one — the same operations any
 image-processing chain exposes. Quality here comes from having the right

@@ -62,6 +62,11 @@ uniform float pRipple;
 uniform float pPinch;
 uniform float pAberration;
 uniform float pMotion;
+uniform float pBleed;
+uniform float pTracking;
+uniform float pPaper;
+uniform float pDistress;
+uniform sampler2D uMedium;
 uniform sampler2D uGlyphs;
 uniform float uGlyphCount;
 uniform sampler2D uMotionPrev;
@@ -139,6 +144,26 @@ float bayer2(vec2 a) {
 float bayer4(vec2 a) { return bayer2(a * 0.5) * 0.25 + bayer2(a); }
 float bayer8(vec2 a) { return bayer4(a * 0.5) * 0.25 + bayer2(a); }
 
+// Analogue video keeps luminance and colour on separate carriers, and colour
+// gets a fraction of the bandwidth. Splitting into YIQ is what lets colour be
+// smeared without dragging the detail with it — the reason tape footage has
+// sharp edges wearing soft colour halos rather than a uniformly blurry picture.
+vec3 rgb2yiq(vec3 c) {
+  return vec3(
+    dot(c, vec3(0.299, 0.587, 0.114)),
+    dot(c, vec3(0.596, -0.274, -0.322)),
+    dot(c, vec3(0.211, -0.523, 0.312))
+  );
+}
+
+vec3 yiq2rgb(vec3 c) {
+  return vec3(
+    c.x + 0.956 * c.y + 0.621 * c.z,
+    c.x - 0.272 * c.y - 0.647 * c.z,
+    c.x - 1.106 * c.y + 1.703 * c.z
+  );
+}
+
 vec3 hueRotate(vec3 c, float a) {
   const vec3 k = vec3(0.57735026919);
   float ca = cos(a);
@@ -167,6 +192,23 @@ void main() {
       vec2 p = uv - 0.5;
       uv = p * pow(clamp(length(p) * 2.0, 0.001, 1.6), k) + 0.5;
     }
+  }
+
+  if (pTracking > 0.001) {
+    // Tape tracking is not uniform jitter. Most lines sit steady and a few tear
+    // badly, and which lines misbehave changes over time — that unevenness is
+    // what reads as a machine struggling rather than as a filter.
+    float line = floor(vUv.y * uRes.y * 0.5);
+    float wobble = hash(vec2(line, floor(uTime * 14.0))) - 0.5;
+    float bad = step(0.86, hash(vec2(line * 0.37, floor(uTime * 3.0))));
+    uv.x += wobble * pTracking * (0.004 + bad * 0.06);
+  }
+
+  if (pDistress > 0.001) {
+    // Displacing by the medium texture, not by a smooth function, so edges
+    // break up along the fibre rather than along a sine wave.
+    vec2 fibre = texture2D(uMedium, uv * 2.3).rg - 0.5;
+    uv += fibre * pDistress * 0.035;
   }
 
   if (pRipple > 0.001) {
@@ -202,6 +244,19 @@ void main() {
     sampleBase(uv).g,
     sampleBase(uv - split).b
   );
+
+  if (pBleed > 0.001) {
+    // Keep this pixel's luminance, but average the colour across a horizontal
+    // run. Detail stays where it was while colour lags and overshoots, which is
+    // what chroma subsampling actually looks like.
+    vec3 here = rgb2yiq(col);
+    vec3 wide = vec3(0.0);
+    for (int i = -4; i <= 4; i++) {
+      wide += rgb2yiq(sampleBase(uv + vec2(float(i) * pBleed * 0.007, 0.0)));
+    }
+    wide /= 9.0;
+    col = yiq2rgb(vec3(here.x, mix(here.yz, wide.yz, pBleed)));
+  }
 
   if (pMotion > 0.001) {
     // Difference against the previous source frame, not the previous output —
@@ -344,6 +399,16 @@ void main() {
     col = mix(col, max(col, trail), pFeedback);
   }
 
+  if (pPaper > 0.001) {
+    // Overlay, not multiply: multiply only ever darkens, so a paper layer put
+    // on with it reads as dirt. Overlay keeps the midpoint neutral and lets the
+    // stock both lift and deepen, which is how a physical medium behaves.
+    vec2 muv = vUv * vec2(uRes.x / uRes.y, 1.0) * 1.4;
+    vec3 medium = texture2D(uMedium, muv).rgb;
+    vec3 over = mix(2.0 * col * medium, 1.0 - 2.0 * (1.0 - col) * (1.0 - medium), step(0.5, col));
+    col = mix(col, over, pPaper);
+  }
+
   if (pGrain > 0.001) {
     col += (hash(vUv * uRes + fract(uTime) * 91.7) - 0.5) * pGrain * 0.5;
   }
@@ -423,6 +488,7 @@ const SCALAR_PARAMS = [
   'invert', 'halftone', 'scanline', 'grain', 'slice', 'sat', 'contrast', 'smooth',
   'dither', 'threshold', 'temp', 'gamma', 'swirl', 'emboss', 'halation',
   'ascii', 'led', 'ripple', 'pinch', 'aberration', 'motion',
+  'bleed', 'tracking', 'paper', 'distress',
 ] as const satisfies readonly ScalarParam[];
 
 // Ramp from sparse to dense. Rendered into a strip once at startup and sampled
@@ -433,7 +499,7 @@ const TINTS = ['tintA', 'tintB', 'tintC', 'tintD'] as const;
 
 type UniformName =
   | 'uSrc' | 'uPrev' | 'uRes' | 'uCover' | 'uTime' | 'uGlyphs' | 'uGlyphCount'
-  | 'uMotionPrev' | 'uMotionCurr'
+  | 'uMotionPrev' | 'uMotionCurr' | 'uMedium'
   | `u${Capitalize<(typeof TINTS)[number]>}`
   | `p${Capitalize<(typeof SCALAR_PARAMS)[number]>}`;
 
@@ -456,6 +522,7 @@ export class WebGLStylizer implements Stylizer {
   private quad!: WebGLBuffer;
   private srcTex!: WebGLTexture;
   private glyphTex!: WebGLTexture;
+  private mediumTex!: WebGLTexture;
   private uniforms!: Record<UniformName, WebGLUniformLocation | null>;
   private uBright!: { tex: WebGLUniformLocation | null; threshold: WebGLUniformLocation | null };
   private uBlur!: { tex: WebGLUniformLocation | null; dir: WebGLUniformLocation | null };
@@ -506,6 +573,14 @@ export class WebGLStylizer implements Stylizer {
     // flip in the shader, so it must not be flipped again on upload.
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, buildGlyphAtlas());
+
+    this.mediumTex = createTexture(gl);
+    gl.bindTexture(gl.TEXTURE_2D, this.mediumTex);
+    // REPEAT so the medium tiles across any projector size; it is power of two,
+    // which is what WebGL1 requires before it will wrap a texture at all.
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, buildMediumTexture());
 
     this.uniforms = collectUniforms(gl, this.progMain);
     this.uBright = {
@@ -622,6 +697,9 @@ export class WebGLStylizer implements Stylizer {
     gl.activeTexture(gl.TEXTURE4);
     gl.bindTexture(gl.TEXTURE_2D, motionCurr.tex);
     gl.uniform1i(this.uniforms.uMotionCurr, 4);
+    gl.activeTexture(gl.TEXTURE5);
+    gl.bindTexture(gl.TEXTURE_2D, this.mediumTex);
+    gl.uniform1i(this.uniforms.uMedium, 5);
 
     const [coverX, coverY] = coverScale(this.sourceSize, w, h);
     gl.uniform2f(this.uniforms.uRes, w, h);
@@ -718,6 +796,7 @@ export class WebGLStylizer implements Stylizer {
     }
     gl.deleteTexture(this.srcTex);
     gl.deleteTexture(this.glyphTex);
+    gl.deleteTexture(this.mediumTex);
     gl.deleteBuffer(this.quad);
     for (const program of [
       this.progMain, this.progBright, this.progBlur, this.progComposite, this.progCopy,
@@ -746,7 +825,7 @@ function collectUniforms(
 ): Record<UniformName, WebGLUniformLocation | null> {
   const names: UniformName[] = [
     'uSrc', 'uPrev', 'uRes', 'uCover', 'uTime', 'uGlyphs', 'uGlyphCount',
-    'uMotionPrev', 'uMotionCurr',
+    'uMotionPrev', 'uMotionCurr', 'uMedium',
     ...TINTS.map((key) => `u${capitalise(key)}` as UniformName),
     ...SCALAR_PARAMS.map((key) => `p${capitalise(key)}` as UniformName),
   ];
@@ -770,6 +849,73 @@ function coverScale(src: { w: number; h: number }, w: number, h: number): [numbe
   return srcAspect > dstAspect
     ? [dstAspect / srcAspect, 1]
     : [1, srcAspect / dstAspect];
+}
+
+/**
+ * The physical medium, synthesised once at startup.
+ *
+ * This is what separates a look from a colour filter. Every other operation
+ * here applies the same maths to every pixel, which is exactly what a browser
+ * filter does and exactly why the result reads as one. Paper has fibre, tape
+ * has wear, emulsion clumps — the medium is spatially uneven, and that
+ * unevenness is most of the impression.
+ *
+ * Value noise over several octaves, plus a horizontally stretched octave for
+ * grain direction. Power of two and REPEAT so it tiles without a visible seam.
+ */
+function buildMediumTexture(): HTMLCanvasElement {
+  const size = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('2D canvas is not available for the medium texture');
+
+  const image = ctx.createImageData(size, size);
+  const noise = (x: number, y: number, period: number): number => {
+    // Wrapping value noise: sampling on a lattice that divides `size` exactly
+    // keeps the left and right edges identical, so REPEAT shows no seam.
+    const gx = Math.floor(x / period);
+    const gy = Math.floor(y / period);
+    const fx = (x / period) - gx;
+    const fy = (y / period) - gy;
+    const wrap = size / period;
+    const at = (ix: number, iy: number): number => {
+      const h = Math.sin(((ix % wrap) + wrap) % wrap * 127.1 + ((iy % wrap) + wrap) % wrap * 311.7) * 43758.5453;
+      return h - Math.floor(h);
+    };
+    const ease = (t: number): number => t * t * (3 - 2 * t);
+    const ux = ease(fx);
+    const uy = ease(fy);
+    const a = at(gx, gy);
+    const b = at(gx + 1, gy);
+    const c = at(gx, gy + 1);
+    const d = at(gx + 1, gy + 1);
+    return (a + (b - a) * ux) + ((c + (d - c) * ux) - (a + (b - a) * ux)) * uy;
+  };
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      let v = 0;
+      v += noise(x, y, 64) * 0.45;
+      v += noise(x, y, 32) * 0.25;
+      v += noise(x, y, 16) * 0.15;
+      v += noise(x, y, 8) * 0.1;
+      // Fibre: one octave stretched along x so the grain has a direction.
+      v += noise(x, y, 4) * 0.05 + noise(x * 0.15, y * 4, 16) * 0.12;
+      // Centre on mid grey — overlay treats 0.5 as neutral, so an off-centre
+      // texture would tint the whole frame before it added any character.
+      const level = Math.max(0, Math.min(1, 0.5 + (v - 0.55) * 1.35));
+      const i = (y * size + x) * 4;
+      const byte = Math.round(level * 255);
+      image.data[i] = byte;
+      image.data[i + 1] = byte;
+      image.data[i + 2] = byte;
+      image.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+  return canvas;
 }
 
 /** Renders the ramp into a one-row strip of square cells. */

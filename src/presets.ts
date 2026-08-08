@@ -53,6 +53,10 @@ export const PARAM_DEFAULTS: Params = {
   streak: 0,     // anamorphic stretch of the bloom; needs `bloom`
   aberration: 0, // fringing that grows toward the corners
   motion: 0,     // keeps only what changed since the previous frame
+  bleed: 0,      // chroma subsampling, colour smears while luma stays sharp
+  tracking: 0,   // per-scanline tape jitter
+  paper: 0,      // medium texture, overlay blend
+  distress: 0,   // medium texture as displacement
 
   tintA: [0.05, 0.02, 0.12],
   tintB: [0.98, 0.42, 0.86],
@@ -274,6 +278,58 @@ const LENS = [
     tintA: [0.0, 0.03, 0.0], tintB: [0.02, 0.28, 0.08],
     tintC: [0.3, 0.9, 0.35], tintD: [0.85, 1.0, 0.85],
   }, { bass: { bloom: 0.35 }, energy: { grain: 0.3 } }),
+];
+
+// Medium — the stock itself, rather than a colour applied to it. Every other
+// bank does the same arithmetic to every pixel, which is what a browser filter
+// does and why it reads as one. These carry a synthesised texture: paper fibre
+// and tape wear, laid on with overlay so the medium can both lift and deepen,
+// and used as displacement so edges break along the grain instead of along a
+// smooth curve.
+const MEDIUM = [
+  look('newsprint2', 'Pressed Paper', {
+    paper: 0.85, distress: 0.3, halftone: 0.4, duotone: 0.85, contrast: 0.6, grain: 0.12,
+    tintA: [0.09, 0.08, 0.07], tintB: [0.36, 0.33, 0.28],
+    tintC: [0.78, 0.74, 0.64], tintD: [0.98, 0.96, 0.9],
+  }, { bass: { distress: 0.3 }, energy: { halftone: -0.2 } }),
+
+  look('inkbleed', 'Ink Bleed', {
+    paper: 0.6, distress: 0.75, threshold: 0.55, smooth: 0.45, duotone: 0.9,
+    tintA: [0.05, 0.06, 0.1], tintB: [0.12, 0.16, 0.3],
+    tintC: [0.6, 0.62, 0.68], tintD: [0.97, 0.96, 0.93],
+  }, { bass: { distress: 0.25 }, energy: { threshold: 0.2 } }),
+
+  look('crumple', 'Crumpled', {
+    paper: 0.95, distress: 0.45, emboss: 0.25, sat: 0.42, contrast: 0.6, vignette: 0.5,
+  }, { bass: { distress: 0.35 }, energy: { emboss: 0.2 } }),
+
+  look('tapewear', 'Tape Wear', {
+    bleed: 0.85, tracking: 0.55, paper: 0.35, grain: 0.3, scanline: 0.3,
+    sat: 0.58, gamma: 0.56, vignette: 0.5,
+  }, { bass: { tracking: 0.45 }, energy: { bleed: 0.15 } }),
+
+  look('badsignal', 'Bad Signal', {
+    bleed: 0.95, tracking: 0.85, slice: 0.35, chroma: 0.3, grain: 0.35, scanline: 0.45,
+    contrast: 0.6,
+  }, { bass: { tracking: 0.15, slice: 0.4 }, energy: { grain: 0.3 } }),
+
+  look('ntsc', 'NTSC', {
+    bleed: 0.9, scanline: 0.55, aberration: 0.25, grain: 0.14, sat: 0.68,
+    contrast: 0.58, gamma: 0.55,
+  }, { bass: { bleed: 0.1 }, energy: { scanline: 0.2 } }),
+
+  look('cyanoprint', 'Blue Print', {
+    paper: 0.8, distress: 0.35, duotone: 1.0, dither: 0.35, contrast: 0.64,
+    tintA: [0.02, 0.07, 0.2], tintB: [0.06, 0.26, 0.5],
+    tintC: [0.42, 0.66, 0.84], tintD: [0.95, 0.97, 1.0],
+  }, { bass: { dither: 0.3 }, energy: { distress: 0.25 } }),
+
+  look('foundfootage', 'Found Footage', {
+    paper: 0.55, distress: 0.25, bleed: 0.5, tracking: 0.25, grain: 0.4,
+    duotone: 0.7, halation: 0.35, gamma: 0.56, vignette: 0.6,
+    tintA: [0.07, 0.05, 0.04], tintB: [0.3, 0.24, 0.16],
+    tintC: [0.72, 0.64, 0.48], tintD: [1.0, 0.96, 0.86],
+  }, { bass: { tracking: 0.35 }, energy: { grain: 0.25 } }),
 ];
 
 const INK = [
@@ -666,15 +722,11 @@ const OPTIC = [
 // as deliberate rather than as a failing cable.
 const SIGNAL = [
   look('vhs', 'VHS', {
-    pixel: 0.45,
-    chroma: 0.55,
-    poster: 0.5,
-    scanline: 0.45,
-    feedback: 0.3,
-    vignette: 0.55,
+    bleed: 0.75, tracking: 0.35, scanline: 0.4, grain: 0.22, paper: 0.18,
+    sat: 0.6, contrast: 0.56, gamma: 0.56, vignette: 0.5,
   }, {
-    bass: { chroma: 0.6, pixel: 0.25 },
-    energy: { poster: -0.2 },
+    bass: { tracking: 0.4, bleed: 0.2 },
+    energy: { grain: 0.25 },
   }),
 
   look('thermal', 'Thermal', {
@@ -760,6 +812,7 @@ export const BANKS = [
   { id: 'film', name: 'Film', looks: FILM },
   { id: 'raster', name: 'Raster', looks: RASTER },
   { id: 'lens', name: 'Lens', looks: LENS },
+  { id: 'medium', name: 'Medium', looks: MEDIUM },
   { id: 'ink', name: 'Ink', looks: INK },
   { id: 'neon', name: 'Neon', looks: NEON },
   { id: 'trail', name: 'Trail', looks: TRAIL },

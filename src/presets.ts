@@ -12,7 +12,7 @@
 // Everything the remote can touch lives here, so adding a look is a data
 // change, never a code change.
 
-import type { AudioLevels, AudioRouting, BankId, Look, Params, ScalarParam } from './types';
+import type { AudioLevels, AudioRouting, BankId, Look, Params, RGB, ScalarParam } from './types';
 
 export const PARAM_DEFAULTS: Params = {
   mirror: 0,     // horizontal mirror, 0 or 1
@@ -38,8 +38,17 @@ export const PARAM_DEFAULTS: Params = {
   sat: 0.5,
   contrast: 0.5,
   smooth: 0,     // flattens detail into regions before quantisation
+  dither: 0,     // ordered Bayer, as opposed to `grain`'s random noise
+  threshold: 0,
+  temp: 0.5,     // neutral
+  gamma: 0.5,    // neutral
+  swirl: 0,
+  emboss: 0,
+  halation: 0,
   tintA: [0.05, 0.02, 0.12],
   tintB: [0.98, 0.42, 0.86],
+  tintC: [0.98, 0.42, 0.86],
+  tintD: [0.98, 0.42, 0.86],
 };
 
 // `const Id` keeps each id a literal, so LookId below is the union of all forty
@@ -52,9 +61,29 @@ const look = <const Id extends string>(
 ): Look<Id> => ({
   id,
   name,
-  params: { ...PARAM_DEFAULTS, ...params },
+  params: fillGradient({ ...PARAM_DEFAULTS, ...params }, params),
   audio: { bass: {}, energy: {}, ...audio },
 });
+
+/**
+ * A look that names only two colours means a two-stop ramp. Spacing B and C
+ * along the A->D line reproduces that exactly through the four-stop gradient
+ * map, so adding midtone stops to the shader did not restyle every look that
+ * predates them.
+ *
+ * The test has to be on what the look *declared*, not on the merged result —
+ * after the defaults are spread in, every key is present.
+ */
+function fillGradient(merged: Params, declared: Partial<Params>): Params {
+  if (declared.tintC ?? declared.tintD) return merged;
+  const [a, b] = [merged.tintA, merged.tintB];
+  const lerp = (t: number): RGB => [
+    a[0] + (b[0] - a[0]) * t,
+    a[1] + (b[1] - a[1]) * t,
+    a[2] + (b[2] - a[2]) * t,
+  ];
+  return { ...merged, tintB: lerp(1 / 3), tintC: lerp(2 / 3), tintD: b };
+}
 
 // Cel — flat colour regions under ink outlines: the illustration end of what a
 // shader can honestly reach. `smooth` does the work; posterising a sharp frame
@@ -95,6 +124,60 @@ const CEL = [
     smooth: 0.65, poster: 0.78, duotone: 0.85, grain: 0.25, edge: 0.3,
     tintA: [0.1, 0.06, 0.3], tintB: [1.0, 0.45, 0.55],
   }, { bass: { poster: -0.28 }, energy: { grain: 0.25 } }),
+];
+
+// Film — where the four-stop gradient map earns its keep. A two-colour ramp can
+// only tint; a film stock's character lives in how its midtones drift, which is
+// what stops B and C describe. Halation (light scattering in the film base)
+// bleeds only the highlights, so it must never touch the shadows.
+const FILM = [
+  look('kodak', 'Kodak Gold', {
+    duotone: 0.8, halation: 0.5, grain: 0.16, temp: 0.6, contrast: 0.56, vignette: 0.35,
+    tintA: [0.06, 0.04, 0.03], tintB: [0.32, 0.20, 0.10],
+    tintC: [0.78, 0.60, 0.32], tintD: [1.0, 0.95, 0.82],
+  }, { bass: { halation: 0.4 }, energy: { grain: 0.2 } }),
+
+  look('cinestill', 'Cinestill', {
+    duotone: 0.85, halation: 0.9, grain: 0.12, contrast: 0.54, vignette: 0.4,
+    tintA: [0.02, 0.04, 0.10], tintB: [0.18, 0.22, 0.38],
+    tintC: [0.72, 0.55, 0.55], tintD: [1.0, 0.92, 0.88],
+  }, { bass: { halation: 0.6 }, energy: { grain: 0.18 } }),
+
+  look('bleachbypass', 'Bleach Bypass', {
+    duotone: 0.7, sat: 0.18, contrast: 0.8, grain: 0.22, gamma: 0.42, vignette: 0.45,
+    tintA: [0.05, 0.06, 0.08], tintB: [0.30, 0.33, 0.36],
+    tintC: [0.68, 0.72, 0.75], tintD: [1.0, 1.0, 1.0],
+  }, { bass: { contrast: -0.2 }, energy: { grain: 0.25 } }),
+
+  look('technicolor', 'Technicolor', {
+    duotone: 0.9, sat: 0.72, contrast: 0.62, halation: 0.3, vignette: 0.4,
+    tintA: [0.04, 0.02, 0.10], tintB: [0.10, 0.30, 0.55],
+    tintC: [0.90, 0.35, 0.25], tintD: [1.0, 0.95, 0.70],
+  }, { bass: { halation: 0.45 }, energy: { sat: 0.15 } }),
+
+  look('crossprocess', 'Cross Process', {
+    duotone: 0.88, contrast: 0.66, grain: 0.14, gamma: 0.55, vignette: 0.4,
+    tintA: [0.02, 0.12, 0.16], tintB: [0.10, 0.38, 0.42],
+    tintC: [0.80, 0.70, 0.25], tintD: [1.0, 0.98, 0.72],
+  }, { bass: { contrast: -0.18 }, energy: { grain: 0.2 } }),
+
+  look('silver', 'Silver', {
+    duotone: 0.95, sat: 0, contrast: 0.68, grain: 0.24, halation: 0.35, vignette: 0.45,
+    tintA: [0.03, 0.03, 0.04], tintB: [0.28, 0.28, 0.30],
+    tintC: [0.70, 0.70, 0.72], tintD: [1.0, 1.0, 1.0],
+  }, { bass: { halation: 0.4 }, energy: { grain: 0.28 } }),
+
+  look('sepia', 'Sepia', {
+    duotone: 0.92, sat: 0.1, grain: 0.2, contrast: 0.58, temp: 0.58, vignette: 0.5,
+    tintA: [0.08, 0.05, 0.03], tintB: [0.35, 0.24, 0.13],
+    tintC: [0.75, 0.60, 0.40], tintD: [1.0, 0.94, 0.80],
+  }, { bass: { contrast: -0.15 }, energy: { grain: 0.25 } }),
+
+  look('cyanotype', 'Cyanotype', {
+    duotone: 1.0, sat: 0, contrast: 0.66, grain: 0.18, dither: 0.25, vignette: 0.45,
+    tintA: [0.01, 0.05, 0.14], tintB: [0.05, 0.22, 0.45],
+    tintC: [0.35, 0.62, 0.82], tintD: [0.92, 0.97, 1.0],
+  }, { bass: { dither: 0.3 }, energy: { grain: 0.2 } }),
 ];
 
 const INK = [
@@ -578,6 +661,7 @@ const SIGNAL = [
 
 export const BANKS = [
   { id: 'cel', name: 'Cel', looks: CEL },
+  { id: 'film', name: 'Film', looks: FILM },
   { id: 'ink', name: 'Ink', looks: INK },
   { id: 'neon', name: 'Neon', looks: NEON },
   { id: 'trail', name: 'Trail', looks: TRAIL },

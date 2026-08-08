@@ -236,7 +236,9 @@ function showNotice(text: string): void {
  */
 function swatch(params: Params): string {
   if (params.duotone > 0.05) {
-    return `linear-gradient(135deg, ${rgb(params.tintA)}, ${rgb(params.tintB)})`;
+    // All four stops, so the swatch shows the same midtone drift the look does.
+    const stops = [params.tintA, params.tintB, params.tintC, params.tintD];
+    return `linear-gradient(135deg, ${stops.map(rgb).join(', ')})`;
   }
   if (params.hue > 0.05) {
     return 'linear-gradient(135deg,#ff4d6a,#ffd166,#3ddc97,#4cc9f0,#b95cff)';

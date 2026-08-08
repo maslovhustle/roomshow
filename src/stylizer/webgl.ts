@@ -49,8 +49,17 @@ uniform float pSlice;
 uniform float pSat;
 uniform float pContrast;
 uniform float pSmooth;
+uniform float pDither;
+uniform float pThreshold;
+uniform float pTemp;
+uniform float pGamma;
+uniform float pSwirl;
+uniform float pEmboss;
+uniform float pHalation;
 uniform vec3  uTintA;
 uniform vec3  uTintB;
+uniform vec3  uTintC;
+uniform vec3  uTintD;
 
 const float PI = 3.14159265359;
 
@@ -99,6 +108,27 @@ vec2 kaleido(vec2 uv, float amt, float t) {
   return vec2(cos(a), sin(a)) * r + 0.5;
 }
 
+// Four-stop gradient map. A two-colour ramp can only ever produce a tint; the
+// character in a real colour grade lives in the midtones, which is where the
+// extra stops go. Looks that only declare two colours get C and D filled in
+// along the A->B line, so they render exactly as they did when this was a
+// duotone.
+vec3 gradientMap(float l) {
+  if (l < 0.3333) return mix(uTintA, uTintB, l * 3.0);
+  if (l < 0.6666) return mix(uTintB, uTintC, (l - 0.3333) * 3.0);
+  return mix(uTintC, uTintD, (l - 0.6666) * 3.0);
+}
+
+// Recursive 2x2 -> 8x8 Bayer. GLSL1 has no bit operations and no dynamic array
+// indexing, so the usual lookup-table dither is not available; this builds the
+// same ordered matrix arithmetically.
+float bayer2(vec2 a) {
+  a = floor(a);
+  return fract(a.x * 0.5 + a.y * a.y * 0.75);
+}
+float bayer4(vec2 a) { return bayer2(a * 0.5) * 0.25 + bayer2(a); }
+float bayer8(vec2 a) { return bayer4(a * 0.5) * 0.25 + bayer2(a); }
+
 vec3 hueRotate(vec3 c, float a) {
   const vec3 k = vec3(0.57735026919);
   float ca = cos(a);
@@ -117,6 +147,15 @@ void main() {
     float band = floor(uv.y * bands);
     float r = hash(vec2(band, floor(uTime * 6.0)));
     uv.x += (r - 0.5) * pSlice * 0.25 * step(0.72, r);
+  }
+
+  if (pSwirl > 0.001) {
+    // Twist falls off with radius, so the centre of frame stays readable while
+    // the edges smear — the opposite way round looks like a broken lens.
+    vec2 p = uv - 0.5;
+    float r = length(p);
+    float a = atan(p.y, p.x) + (0.6 - r) * pSwirl * 4.0;
+    uv = vec2(cos(a), sin(a)) * r + 0.5;
   }
 
   uv = kaleido(uv, pKaleido, uTime);
@@ -168,9 +207,50 @@ void main() {
     col = hueRotate(col, uTime * pHue * 1.4);
   }
 
+  if (pEmboss > 0.001) {
+    vec2 t = 1.5 / uRes;
+    float relief = luma(sampleSrc(uv - t)) - luma(sampleSrc(uv + t));
+    col = mix(col, vec3(0.5 + relief * 2.2), pEmboss);
+  }
+
+  if (pTemp > 0.499 || pTemp < 0.499) {
+    float k = (pTemp - 0.5) * 0.5;
+    col.r = clamp(col.r + k, 0.0, 1.0);
+    col.b = clamp(col.b - k, 0.0, 1.0);
+  }
+
+  col = pow(clamp(col, 0.0, 1.0), vec3(pow(4.0, (0.5 - pGamma) * 2.0)));
+
+  if (pThreshold > 0.001) {
+    float cut = smoothstep(0.5 - 0.5 / max(1.0, pThreshold * 40.0), 0.5, luma(col));
+    col = mix(col, vec3(cut), pThreshold);
+  }
+
   if (pDuotone > 0.001) {
-    vec3 duo = mix(uTintA, uTintB, smoothstep(0.05, 0.92, luma(col)));
-    col = mix(col, duo, pDuotone);
+    col = mix(col, gradientMap(smoothstep(0.03, 0.95, luma(col))), pDuotone);
+  }
+
+  if (pDither > 0.001) {
+    float levels = max(2.0, mix(16.0, 2.0, pDither));
+    float b = bayer8(gl_FragCoord.xy) - 0.5;
+    col = floor(col * levels + b + 0.5) / levels;
+  }
+
+  if (pHalation > 0.001) {
+    // Bleed only what is already bright, warm it, and add it back. Real
+    // halation is light scattering in the film base, so it must not touch the
+    // shadows or the whole frame just goes milky.
+    vec2 r = 4.0 / uRes;
+    vec3 glow = vec3(0.0);
+    glow += sampleBase(uv + vec2( r.x,  0.0));
+    glow += sampleBase(uv + vec2(-r.x,  0.0));
+    glow += sampleBase(uv + vec2( 0.0,  r.y));
+    glow += sampleBase(uv + vec2( 0.0, -r.y));
+    glow += sampleBase(uv + r * 1.6);
+    glow += sampleBase(uv - r * 1.6);
+    glow /= 6.0;
+    float lift = smoothstep(0.55, 1.0, luma(glow));
+    col += glow * vec3(1.0, 0.72, 0.55) * lift * pHalation * 1.4;
   }
 
   if (pHalftone > 0.001) {
@@ -226,10 +306,14 @@ const SCALAR_PARAMS = [
   'mirror', 'kaleido', 'pixel', 'chroma', 'edge', 'poster',
   'hue', 'duotone', 'feedback', 'warp', 'spin', 'glow', 'vignette',
   'invert', 'halftone', 'scanline', 'grain', 'slice', 'sat', 'contrast', 'smooth',
+  'dither', 'threshold', 'temp', 'gamma', 'swirl', 'emboss', 'halation',
 ] as const satisfies readonly ScalarParam[];
 
+const TINTS = ['tintA', 'tintB', 'tintC', 'tintD'] as const;
+
 type UniformName =
-  | 'uSrc' | 'uPrev' | 'uRes' | 'uCover' | 'uTime' | 'uTintA' | 'uTintB'
+  | 'uSrc' | 'uPrev' | 'uRes' | 'uCover' | 'uTime'
+  | `u${Capitalize<(typeof TINTS)[number]>}`
   | `p${Capitalize<(typeof SCALAR_PARAMS)[number]>}`;
 
 interface Target {
@@ -345,8 +429,10 @@ export class WebGLStylizer implements Stylizer {
     for (const key of SCALAR_PARAMS) {
       gl.uniform1f(this.uniforms[`p${capitalise(key)}` as UniformName], params[key]);
     }
-    gl.uniform3fv(this.uniforms.uTintA, params.tintA as unknown as number[]);
-    gl.uniform3fv(this.uniforms.uTintB, params.tintB as unknown as number[]);
+    for (const tint of TINTS) {
+      const name = `u${capitalise(tint)}` as UniformName;
+      gl.uniform3fv(this.uniforms[name], params[tint] as unknown as number[]);
+    }
 
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
@@ -395,7 +481,8 @@ function collectUniforms(
   program: WebGLProgram,
 ): Record<UniformName, WebGLUniformLocation | null> {
   const names: UniformName[] = [
-    'uSrc', 'uPrev', 'uRes', 'uCover', 'uTime', 'uTintA', 'uTintB',
+    'uSrc', 'uPrev', 'uRes', 'uCover', 'uTime',
+    ...TINTS.map((key) => `u${capitalise(key)}` as UniformName),
     ...SCALAR_PARAMS.map((key) => `p${capitalise(key)}` as UniformName),
   ];
   return Object.fromEntries(

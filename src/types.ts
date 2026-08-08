@@ -1,6 +1,6 @@
 export type RGB = readonly [number, number, number];
 
-export type BankId = 'cel' | 'ink' | 'neon' | 'trail' | 'optic' | 'signal';
+export type BankId = 'cel' | 'film' | 'ink' | 'neon' | 'trail' | 'optic' | 'signal';
 
 export type SourceKind = 'phone' | 'camera' | 'screen' | 'shapes';
 
@@ -46,8 +46,21 @@ export interface Params {
   contrast: number;
   /** Flattens detail into regions before quantisation. */
   smooth: number;
+  /** Ordered (Bayer) dither. Distinct from `grain`, which is random noise. */
+  dither: number;
+  threshold: number;
+  /** Neutral at 0.5, not 0. */
+  temp: number;
+  /** Neutral at 0.5, not 0. */
+  gamma: number;
+  swirl: number;
+  emboss: number;
+  halation: number;
+  /** Four stops of the gradient map, dark to light. */
   tintA: RGB;
   tintB: RGB;
+  tintC: RGB;
+  tintD: RGB;
 }
 
 /** The scalar subset — everything except the two colour pairs. */

@@ -114,13 +114,25 @@ that case reports a legible failure on the phone instead of a black projector.
 
 ## Looks
 
-Forty-eight looks in six banks of eight: **Cel** (flat colour under ink lines),
-**Ink** (print and graphic), **Neon** (edge and glow), **Trail** (frame
-feedback), **Optic** (the polar fold), **Signal** (glitch and analog).
+Fifty-six looks in seven banks of eight: **Cel** (flat colour under ink lines),
+**Film** (stock emulation), **Ink** (print and graphic), **Neon** (edge and
+glow), **Trail** (frame feedback), **Optic** (the polar fold), **Signal**
+(glitch and analog).
 
 Banks exist because a flat list of that length is two dozen rows of scrolling on
 a phone in a dark room, which defeats the point of having a remote. Eight fits
 one thumb-reach screen and maps onto the number keys.
+
+**Film** is where the four-stop **gradient map** earns its keep. A two-colour
+ramp can only tint; a film stock's character lives in how its midtones drift,
+which is what the middle stops describe. It arrived alongside **halation**
+(highlights only — real halation is scattering in the film base, so touching the
+shadows just makes the frame milky) and an **ordered Bayer dither**, which is a
+different thing from `grain`: one is a regular screen, the other is noise.
+
+Adding midtone stops could have restyled every look written before them, so a
+look that names only two colours gets its middle stops spaced along the A→D line
+and renders exactly as it did as a duotone.
 
 **Cel** is the illustration end of what a shader can honestly reach, and it
 needed a new primitive: `smooth` blurs the frame before quantisation. Posterising
@@ -135,10 +147,16 @@ The remote follows the stage into a new bank only when the look actually
 changes, and marks the bank holding the live look with a dot.
 
 A look is a parameter set plus an audio routing table, both data. The shader
-exposes twenty-one scalars — geometry (`kaleido`, `mirror`, `slice`), sampling
-(`pixel`, `chroma`), tone (`poster`, `invert`, `sat`, `contrast`, `duotone`,
-`hue`, `smooth`), texture (`halftone`, `scanline`, `grain`), motion (`feedback`, `warp`,
-`spin`), and finish (`edge`, `glow`, `vignette`).
+exposes twenty-eight scalars plus four gradient stops — geometry (`kaleido`,
+`mirror`, `slice`, `swirl`), sampling (`pixel`, `chroma`, `smooth`), tone
+(`poster`, `invert`, `sat`, `contrast`, `gamma`, `temp`, `threshold`, `hue`,
+`duotone`), texture (`halftone`, `dither`, `scanline`, `grain`, `emboss`),
+motion (`feedback`, `warp`, `spin`), and finish (`edge`, `glow`, `halation`,
+`vignette`).
+
+That vocabulary is deliberately the standard one — the same operations any
+image-processing chain exposes. Quality here comes from having the right
+primitives, not from a model.
 
 ## Layout
 

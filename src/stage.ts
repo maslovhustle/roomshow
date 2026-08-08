@@ -6,27 +6,29 @@
 // with the keyboard alone — a demo must never be one dead phone away from
 // a black screen.
 
-import { normaliseCode, makeSessionCode, pairingHash, hasSupabase } from './config.js';
-import { createSync, msg } from './sync.js';
-import { BANKS, banksLooks, bankOf, resolveParams } from './presets.js';
-import { WebGLStylizer } from './stylizer/webgl.js';
-import { SourceManager } from './source.js';
-import { CanvasRecorder, snapshot } from './recorder.js';
-import { AudioReactor } from './audio.js';
+import './styles/app.css';
+import { hasSupabase, makeSessionCode, normaliseCode, pairingHash } from './config';
+import { BANKS, bankOf, banksLooks, resolveParams } from './presets';
+import { createSync, msg } from './sync';
+import { WebGLStylizer } from './stylizer/webgl';
+import { SourceManager } from './source';
+import { CanvasRecorder, snapshot } from './recorder';
+import { AudioReactor, SILENCE } from './audio';
+import type { StageAction, StageState, Sync, SyncMessage } from './types';
 
 const MAX_WIDTH = 1920;
 
-const canvas = document.getElementById('stage');
-const hud = document.getElementById('hud');
+const canvas = must<HTMLCanvasElement>('stage');
+const hud = must<HTMLDivElement>('hud');
 const els = {
-  code: document.getElementById('code'),
-  remoteUrl: document.getElementById('remoteUrl'),
-  copy: document.getElementById('copyLink'),
-  status: document.getElementById('status'),
-  preset: document.getElementById('nowPreset'),
-  fps: document.getElementById('fps'),
-  rec: document.getElementById('recDot'),
-  error: document.getElementById('error'),
+  code: must<HTMLDivElement>('code'),
+  remoteUrl: must<HTMLAnchorElement>('remoteUrl'),
+  copy: must<HTMLButtonElement>('copyLink'),
+  status: must<HTMLSpanElement>('status'),
+  preset: must<HTMLSpanElement>('nowPreset'),
+  fps: must<HTMLSpanElement>('fps'),
+  rec: must<HTMLSpanElement>('recDot'),
+  error: must<HTMLDivElement>('error'),
 };
 
 const code = normaliseCode(new URLSearchParams(location.search).get('code')) || makeSessionCode();
@@ -35,7 +37,7 @@ const source = new SourceManager();
 const audio = new AudioReactor();
 const recorder = new CanvasRecorder(canvas);
 
-const state = {
+const state: StageState = {
   preset: 'neon',
   intensity: 0.65,
   source: 'shapes',
@@ -44,9 +46,9 @@ const state = {
   recording: false,
 };
 
-let sync = null;
+let sync: Sync;
 
-async function boot() {
+async function boot(): Promise<void> {
   els.code.textContent = code;
 
   // Two URLs on purpose: the readable one goes on screen, the one carrying the
@@ -62,15 +64,7 @@ async function boot() {
     setTimeout(() => (els.copy.textContent = 'copy link'), 1800);
   };
 
-  if (!hasSupabase()) {
-    fail('No Supabase keys — the remote will only reach this browser. Add them on the home page.');
-  }
-
-  try {
-    stylizer.init();
-  } catch (err) {
-    return fail(err.message);
-  }
+  stylizer.init();
 
   await source.use('shapes');
   stylizer.setSource(source.element, source.size.w, source.size.h);
@@ -82,6 +76,10 @@ async function boot() {
   sync.onMessage(onMessage);
   sync.send(msg.state(state));
 
+  if (!hasSupabase()) {
+    fail('No Supabase keys — the remote will only reach this browser. Add them on the home page.');
+  }
+
   window.addEventListener('resize', resize);
   window.addEventListener('keydown', onKey);
   // A quiet stage still needs to prove it is alive to a phone that just woke up.
@@ -90,19 +88,29 @@ async function boot() {
   requestAnimationFrame(loop);
 }
 
-function onMessage(m) {
-  if (m.t === 'hello') return sync.send(msg.state(state));
-  if (m.t === 'patch') return applyPatch(m.patch);
-  if (m.t === 'action') return runAction(m.action);
+function onMessage(message: SyncMessage): void {
+  switch (message.t) {
+    case 'hello':
+      sync.send(msg.state(state));
+      break;
+    case 'patch':
+      void applyPatch(message.patch);
+      break;
+    case 'action':
+      void runAction(message.action);
+      break;
+    case 'state':
+      break;
+  }
 }
 
-async function applyPatch(patch) {
+async function applyPatch(patch: Partial<StageState>): Promise<void> {
   if (patch.source && patch.source !== state.source) {
     try {
       await source.use(patch.source);
       state.source = patch.source;
     } catch (err) {
-      fail(`camera: ${err.message}`);
+      fail(`camera: ${message(err)}`);
       // Never leave the projector dark because a permission was denied.
       await source.use('shapes');
       state.source = 'shapes';
@@ -113,17 +121,18 @@ async function applyPatch(patch) {
       if (patch.audio) await audio.start(); else audio.stop();
       state.audio = patch.audio;
     } catch (err) {
-      fail(`mic: ${err.message}`);
+      fail(`mic: ${message(err)}`);
       state.audio = false;
     }
   }
-  for (const key of ['preset', 'intensity', 'mirror']) {
-    if (patch[key] !== undefined) state[key] = patch[key];
-  }
+  if (patch.preset !== undefined) state.preset = patch.preset;
+  if (patch.intensity !== undefined) state.intensity = patch.intensity;
+  if (patch.mirror !== undefined) state.mirror = patch.mirror;
+
   sync.send(msg.state(state));
 }
 
-async function runAction(action) {
+async function runAction(action: StageAction): Promise<void> {
   if (action === 'record') {
     if (recorder.recording) {
       await recorder.stop();
@@ -133,7 +142,7 @@ async function runAction(action) {
         recorder.start();
         state.recording = true;
       } catch (err) {
-        fail(err.message);
+        fail(message(err));
       }
     }
     els.rec.hidden = !state.recording;
@@ -143,43 +152,48 @@ async function runAction(action) {
   if (action === 'fullscreen') toggleFullscreen();
 }
 
-function onKey(e) {
+function onKey(event: KeyboardEvent): void {
   // Number keys address the current bank, so eight keys cover forty looks.
   const looks = banksLooks(bankOf(state.preset));
-  const index = Number(e.key) - 1;
-  if (index >= 0 && index < looks.length) return applyPatch({ preset: looks[index].id });
+  const index = Number(event.key) - 1;
+  const picked = looks[index];
+  if (picked) {
+    void applyPatch({ preset: picked.id });
+    return;
+  }
 
-  const keys = {
+  const actions: Record<string, () => void> = {
     '[': () => stepBank(-1),
     ']': () => stepBank(1),
     f: () => toggleFullscreen(),
-    r: () => runAction('record'),
-    s: () => runAction('snapshot'),
-    c: () => applyPatch({ source: state.source === 'camera' ? 'shapes' : 'camera' }),
-    m: () => applyPatch({ audio: !state.audio }),
+    r: () => void runAction('record'),
+    s: () => void runAction('snapshot'),
+    c: () => void applyPatch({ source: state.source === 'camera' ? 'shapes' : 'camera' }),
+    m: () => void applyPatch({ audio: !state.audio }),
     h: () => hud.classList.toggle('hidden'),
-    ArrowUp: () => applyPatch({ intensity: Math.min(1, state.intensity + 0.05) }),
-    ArrowDown: () => applyPatch({ intensity: Math.max(0, state.intensity - 0.05) }),
+    ArrowUp: () => void applyPatch({ intensity: Math.min(1, state.intensity + 0.05) }),
+    ArrowDown: () => void applyPatch({ intensity: Math.max(0, state.intensity - 0.05) }),
   };
-  const fn = keys[e.key];
-  if (fn) {
-    e.preventDefault();
-    fn();
+  const run = actions[event.key];
+  if (run) {
+    event.preventDefault();
+    run();
   }
 }
 
-function stepBank(direction) {
-  const at = BANKS.findIndex((b) => b.id === bankOf(state.preset));
+function stepBank(direction: number): void {
+  const at = BANKS.findIndex((bank) => bank.id === bankOf(state.preset));
   const next = BANKS[(at + direction + BANKS.length) % BANKS.length];
-  applyPatch({ preset: next.looks[0].id });
+  const first = next?.looks[0];
+  if (first) void applyPatch({ preset: first.id });
 }
 
-function toggleFullscreen() {
-  if (document.fullscreenElement) document.exitFullscreen();
-  else document.documentElement.requestFullscreen().catch(() => {});
+function toggleFullscreen(): void {
+  if (document.fullscreenElement) void document.exitFullscreen();
+  else void document.documentElement.requestFullscreen().catch(() => {});
 }
 
-function resize() {
+function resize(): void {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const width = Math.min(MAX_WIDTH, Math.floor(window.innerWidth * dpr));
   const height = Math.floor(width * (window.innerHeight / window.innerWidth));
@@ -189,13 +203,13 @@ function resize() {
 let frames = 0;
 let fpsMark = performance.now();
 
-function loop(now) {
+function loop(now: number): void {
   requestAnimationFrame(loop);
 
   const size = source.size;
   if (size.w > 1) stylizer.setSource(source.element, size.w, size.h);
 
-  const levels = state.audio ? audio.sample() : { bass: 0, energy: 0 };
+  const levels = state.audio ? audio.sample() : SILENCE;
   const params = resolveParams(state.preset, state.intensity, levels);
   params.mirror = state.mirror;
 
@@ -210,11 +224,21 @@ function loop(now) {
   }
 }
 
-function fail(message) {
-  els.error.textContent = message;
+function fail(text: string): void {
+  els.error.textContent = text;
   els.error.hidden = false;
   hud.classList.remove('hidden');
   setTimeout(() => (els.error.hidden = true), 6000);
 }
 
-boot();
+function message(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function must<T extends HTMLElement>(id: string): T {
+  const el = document.getElementById(id);
+  if (!el) throw new Error(`Missing #${id} in the page`);
+  return el as T;
+}
+
+void boot();

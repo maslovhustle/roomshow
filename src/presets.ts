@@ -12,7 +12,9 @@
 // Everything the remote can touch lives here, so adding a look is a data
 // change, never a code change.
 
-export const PARAM_DEFAULTS = {
+import type { AudioLevels, AudioRouting, BankId, Look, Params, ScalarParam } from './types';
+
+export const PARAM_DEFAULTS: Params = {
   mirror: 0,     // horizontal mirror, 0 or 1
   kaleido: 0,    // segment count driver
   pixel: 0,      // pixelation
@@ -39,15 +41,20 @@ export const PARAM_DEFAULTS = {
   tintB: [0.98, 0.42, 0.86],
 };
 
-const look = (id, name, params, audio = {}) => ({
+// `const Id` keeps each id a literal, so LookId below is the union of all forty
+// rather than plain string — a typo in stage.ts or remote.ts fails to compile.
+const look = <const Id extends string>(
+  id: Id,
+  name: string,
+  params: Partial<Params>,
+  audio: Partial<AudioRouting> = {},
+): Look<Id> => ({
   id,
   name,
   params: { ...PARAM_DEFAULTS, ...params },
   audio: { bass: {}, energy: {}, ...audio },
 });
 
-// Ink — print and graphic arts. Flat, high-contrast, no motion smear. These are
-// the looks that survive a bad projector in a bright room.
 const INK = [
   look('raw', 'Raw', {
     vignette: 0.35,
@@ -533,37 +540,43 @@ export const BANKS = [
   { id: 'trail', name: 'Trail', looks: TRAIL },
   { id: 'optic', name: 'Optic', looks: OPTIC },
   { id: 'signal', name: 'Signal', looks: SIGNAL },
-];
+] as const satisfies readonly { id: BankId; name: string; looks: readonly Look[] }[];
 
 export const PRESETS = BANKS.flatMap((bank) =>
   bank.looks.map((entry) => ({ ...entry, bank: bank.id })));
 
-export const PRESET_BY_ID = Object.fromEntries(PRESETS.map((p) => [p.id, p]));
+export type LookId = (typeof PRESETS)[number]['id'];
 
-export function banksLooks(bankId) {
-  return (BANKS.find((b) => b.id === bankId) || BANKS[0]).looks;
+const PRESET_BY_ID = new Map(PRESETS.map((p) => [p.id as string, p]));
+
+const FALLBACK = PRESETS[0]!;
+
+export function banksLooks(bankId: BankId): readonly Look[] {
+  return (BANKS.find((b) => b.id === bankId) ?? BANKS[0]).looks;
 }
 
-export function bankOf(presetId) {
-  return PRESET_BY_ID[presetId]?.bank || BANKS[0].id;
+export function bankOf(presetId: string): BankId {
+  return PRESET_BY_ID.get(presetId)?.bank ?? BANKS[0].id;
 }
 
-// Resolves a preset + live audio into the flat uniform set the renderer wants.
-// `intensity` is the master fader on the remote: it scales how far audio is
-// allowed to push each parameter, not the look itself.
-export function resolveParams(presetId, intensity, audio) {
-  const preset = PRESET_BY_ID[presetId] || PRESETS[0];
-  const out = { ...preset.params };
+/**
+ * Resolves a preset + live audio into the flat uniform set the renderer wants.
+ * `intensity` is the master fader on the remote: it scales how far audio is
+ * allowed to push each parameter, not the look itself.
+ */
+export function resolveParams(presetId: string, intensity: number, audio: AudioLevels): Params {
+  const preset = PRESET_BY_ID.get(presetId) ?? FALLBACK;
+  const out: Params = { ...preset.params };
 
-  for (const [band, routes] of Object.entries({ bass: preset.audio.bass, energy: preset.audio.energy })) {
-    const level = (audio?.[band] ?? 0) * intensity;
-    for (const [param, amount] of Object.entries(routes || {})) {
+  for (const band of ['bass', 'energy'] as const) {
+    const level = audio[band] * intensity;
+    for (const [param, amount] of Object.entries(preset.audio[band]) as [ScalarParam, number][]) {
       out[param] = clamp01(out[param] + amount * level);
     }
   }
   return out;
 }
 
-function clamp01(v) {
+function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
 }

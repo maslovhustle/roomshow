@@ -4,44 +4,63 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>roomshow — turn the room into the show</title>
-  <link rel="stylesheet" href="css/app.css">
 </head>
 <body class="landing">
   <main class="card">
     <h1>roomshow</h1>
     <p class="lede">Point a camera at the room, restyle it live, project it back. Runs entirely in the browser.</p>
 
-    <label for="code">Session code</label>
-    <input id="code" type="text" class="mono" maxlength="8" autocomplete="off" spellcheck="false">
+    <section class="step">
+      <h2 class="step-title"><span class="step-num">1</span> Start a session</h2>
 
-    <button class="primary" id="openStage">Open stage →</button>
+      <label for="code">Session code</label>
+      <input id="code" type="text" class="mono" maxlength="8" autocomplete="off" spellcheck="false">
 
-    <div class="row-2" style="margin-top:10px">
-      <button id="openRemote">Open remote</button>
-      <button id="newCode">New code</button>
-    </div>
+      <button class="primary" id="openStage">Open stage →</button>
 
-    <p class="hint">
-      Open the <strong>stage</strong> on the machine wired to the projector, then open the
-      <strong>remote</strong> on your phone with the same code.
-    </p>
+      <div class="row-2" style="margin-top:10px">
+        <button id="openRemote">Open remote</button>
+        <button id="newCode">New code</button>
+      </div>
 
-    <details id="settings">
-      <summary>Cross-device remote (Supabase, free tier)</summary>
       <p class="hint">
-        Without keys the remote only reaches the stage inside the same browser — fine for testing,
-        useless in a room. Paste a free Supabase project's URL and anon key to control the stage from
-        your phone. Nothing is sent anywhere else; the keys stay in this browser's localStorage.
+        Open the <strong>stage</strong> on the machine wired to the projector, then open the
+        <strong>remote</strong> on your phone.
       </p>
+    </section>
+
+    <!-- Not a collapsed panel: without these keys the phone cannot reach the
+         stage at all, so hiding the one required setup step behind a summary
+         made it read as an optional footnote. -->
+    <section class="step">
+      <h2 class="step-title">
+        <span class="step-num">2</span> Link your phone
+        <span id="linkPill" class="pill">not linked</span>
+      </h2>
+
+      <p class="hint">
+        The remote talks to the stage over a free Supabase Realtime channel. No tables, no schema —
+        just a message bus. Create a project at
+        <a href="https://supabase.com/dashboard" target="_blank" rel="noreferrer">supabase.com</a>,
+        then copy its URL and anon key from <strong>Project Settings → API Keys</strong>.
+        Both stay in this browser's localStorage.
+      </p>
+
       <label for="supabaseUrl">Project URL</label>
       <input id="supabaseUrl" type="url" placeholder="https://xxxxx.supabase.co" autocomplete="off" spellcheck="false">
-      <label for="supabaseAnonKey">Anon key</label>
-      <input id="supabaseAnonKey" type="text" autocomplete="off" spellcheck="false">
-      <button id="saveKeys" style="margin-top:14px;width:100%">Save keys</button>
+
+      <label for="supabaseAnonKey">Anon key (the long public one)</label>
+      <input id="supabaseAnonKey" type="text" placeholder="eyJhbGciOi…" autocomplete="off" spellcheck="false">
+
+      <div class="row-2" style="margin-top:14px">
+        <button id="saveKeys">Save keys</button>
+        <button id="testKeys">Test connection</button>
+      </div>
+
       <p class="hint" id="keyStatus"></p>
-    </details>
+    </section>
   </main>
 
-  <script type="module" src="js/landing.js"></script>
+  <script type="module" src="/src/landing.ts"></script>
 </body>
 </html>

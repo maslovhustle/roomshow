@@ -8,6 +8,8 @@
 // WebGL1 on purpose: it runs on the ancient laptop that is inevitably plugged
 // into the projector.
 
+import type { Params, ScalarParam, Stylizer } from '../types';
+
 const VERT = `
 attribute vec2 aPos;
 varying vec2 vUv;
@@ -199,27 +201,55 @@ varying vec2 vUv;
 uniform sampler2D uTex;
 void main() { gl_FragColor = texture2D(uTex, vUv); }`;
 
-export class WebGLStylizer {
-  constructor(canvas) {
-    this.canvas = canvas;
-    this.gl = null;
-    this.source = null;
-    this.sourceSize = { w: 1, h: 1 };
-    this.targets = [];
-    this.index = 0;
-    this.ready = false;
-  }
+const SCALAR_PARAMS = [
+  'mirror', 'kaleido', 'pixel', 'chroma', 'edge', 'poster',
+  'hue', 'duotone', 'feedback', 'warp', 'spin', 'glow', 'vignette',
+  'invert', 'halftone', 'scanline', 'grain', 'slice', 'sat', 'contrast',
+] as const satisfies readonly ScalarParam[];
 
-  init() {
-    const opts = { alpha: false, antialias: false, depth: false, preserveDrawingBuffer: true };
-    const gl = this.canvas.getContext('webgl', opts) || this.canvas.getContext('experimental-webgl', opts);
+type UniformName =
+  | 'uSrc' | 'uPrev' | 'uRes' | 'uCover' | 'uTime' | 'uTintA' | 'uTintB'
+  | `p${Capitalize<(typeof SCALAR_PARAMS)[number]>}`;
+
+interface Target {
+  tex: WebGLTexture;
+  fbo: WebGLFramebuffer;
+}
+
+export class WebGLStylizer implements Stylizer {
+  private gl: WebGLRenderingContext | null = null;
+  private progMain!: WebGLProgram;
+  private progCopy!: WebGLProgram;
+  private quad!: WebGLBuffer;
+  private srcTex!: WebGLTexture;
+  private uniforms!: Record<UniformName, WebGLUniformLocation | null>;
+  private copyUniform: WebGLUniformLocation | null = null;
+  private targets: Target[] = [];
+  private index = 0;
+  private source: TexImageSource | null = null;
+  private sourceSize = { w: 1, h: 1 };
+  private ready = false;
+
+  constructor(private canvas: HTMLCanvasElement) {}
+
+  init(): void {
+    const options: WebGLContextAttributes = {
+      alpha: false,
+      antialias: false,
+      depth: false,
+      preserveDrawingBuffer: true,
+    };
+    const gl = (this.canvas.getContext('webgl', options)
+      ?? this.canvas.getContext('experimental-webgl', options)) as WebGLRenderingContext | null;
     if (!gl) throw new Error('WebGL is not available in this browser');
     this.gl = gl;
 
     this.progMain = buildProgram(gl, VERT, FRAG_MAIN);
     this.progCopy = buildProgram(gl, VERT, FRAG_COPY);
 
-    this.quad = gl.createBuffer();
+    const quad = gl.createBuffer();
+    if (!quad) throw new Error('Could not allocate a vertex buffer');
+    this.quad = quad;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
 
@@ -229,34 +259,34 @@ export class WebGLStylizer {
 
     this.resize(this.canvas.width, this.canvas.height);
     this.ready = true;
-    return this;
   }
 
-  // Accepts anything texImage2D takes: a <video>, a <canvas>, an ImageBitmap.
-  setSource(source, width, height) {
+  /** Accepts anything texImage2D takes: a <video>, a <canvas>, an ImageBitmap. */
+  setSource(source: TexImageSource, width: number, height: number): void {
     this.source = source;
     this.sourceSize = { w: Math.max(1, width), h: Math.max(1, height) };
   }
 
-  resize(width, height) {
+  resize(width: number, height: number): void {
     const gl = this.gl;
+    if (!gl) return;
     const w = Math.max(2, Math.floor(width));
     const h = Math.max(2, Math.floor(height));
     if (this.canvas.width !== w || this.canvas.height !== h) {
       this.canvas.width = w;
       this.canvas.height = h;
     }
-    this.targets.forEach((t) => {
-      gl.deleteFramebuffer(t.fbo);
-      gl.deleteTexture(t.tex);
-    });
+    for (const target of this.targets) {
+      gl.deleteFramebuffer(target.fbo);
+      gl.deleteTexture(target.tex);
+    }
     this.targets = [createTarget(gl, w, h), createTarget(gl, w, h)];
     this.index = 0;
   }
 
-  render(params, timeSeconds) {
-    if (!this.ready || !this.source) return;
+  render(params: Params, timeSeconds: number): void {
     const gl = this.gl;
+    if (!this.ready || !gl || !this.source) return;
     const { width: w, height: h } = this.canvas;
 
     // Upload the current source frame. Video decode may not have produced one
@@ -271,13 +301,13 @@ export class WebGLStylizer {
       }
     }
 
-    const read = this.targets[this.index];
-    const write = this.targets[1 - this.index];
+    const read = this.targets[this.index]!;
+    const write = this.targets[1 - this.index]!;
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, write.fbo);
     gl.viewport(0, 0, w, h);
     gl.useProgram(this.progMain);
-    this.#bindQuad(this.progMain);
+    this.bindQuad(this.progMain);
 
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.srcTex);
@@ -286,15 +316,16 @@ export class WebGLStylizer {
     gl.bindTexture(gl.TEXTURE_2D, read.tex);
     gl.uniform1i(this.uniforms.uPrev, 1);
 
+    const [coverX, coverY] = coverScale(this.sourceSize, w, h);
     gl.uniform2f(this.uniforms.uRes, w, h);
-    gl.uniform2f(this.uniforms.uCover, ...coverScale(this.sourceSize, w, h));
+    gl.uniform2f(this.uniforms.uCover, coverX, coverY);
     gl.uniform1f(this.uniforms.uTime, timeSeconds);
 
     for (const key of SCALAR_PARAMS) {
-      gl.uniform1f(this.uniforms['p' + cap(key)], params[key] ?? 0);
+      gl.uniform1f(this.uniforms[`p${capitalise(key)}` as UniformName], params[key]);
     }
-    gl.uniform3fv(this.uniforms.uTintA, params.tintA);
-    gl.uniform3fv(this.uniforms.uTintB, params.tintB);
+    gl.uniform3fv(this.uniforms.uTintA, params.tintA as unknown as number[]);
+    gl.uniform3fv(this.uniforms.uTintB, params.tintB as unknown as number[]);
 
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
@@ -302,7 +333,7 @@ export class WebGLStylizer {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, w, h);
     gl.useProgram(this.progCopy);
-    this.#bindQuad(this.progCopy);
+    this.bindQuad(this.progCopy);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, write.tex);
     gl.uniform1i(this.copyUniform, 0);
@@ -311,13 +342,13 @@ export class WebGLStylizer {
     this.index = 1 - this.index;
   }
 
-  dispose() {
+  dispose(): void {
     const gl = this.gl;
     if (!gl) return;
-    this.targets.forEach((t) => {
-      gl.deleteFramebuffer(t.fbo);
-      gl.deleteTexture(t.tex);
-    });
+    for (const target of this.targets) {
+      gl.deleteFramebuffer(target.fbo);
+      gl.deleteTexture(target.tex);
+    }
     gl.deleteTexture(this.srcTex);
     gl.deleteBuffer(this.quad);
     gl.deleteProgram(this.progMain);
@@ -325,33 +356,34 @@ export class WebGLStylizer {
     this.ready = false;
   }
 
-  #bindQuad(program) {
-    const gl = this.gl;
-    const loc = gl.getAttribLocation(program, 'aPos');
+  private bindQuad(program: WebGLProgram): void {
+    const gl = this.gl!;
+    const location = gl.getAttribLocation(program, 'aPos');
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
-    gl.enableVertexAttribArray(loc);
-    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(location);
+    gl.vertexAttribPointer(location, 2, gl.FLOAT, false, 0, 0);
   }
 }
 
-const SCALAR_PARAMS = [
-  'mirror', 'kaleido', 'pixel', 'chroma', 'edge', 'poster',
-  'hue', 'duotone', 'feedback', 'warp', 'spin', 'glow', 'vignette',
-  'invert', 'halftone', 'scanline', 'grain', 'slice', 'sat', 'contrast',
-];
-
-function cap(s) {
-  return s[0].toUpperCase() + s.slice(1);
+function capitalise<S extends string>(s: S): Capitalize<S> {
+  return (s.charAt(0).toUpperCase() + s.slice(1)) as Capitalize<S>;
 }
 
-function collectUniforms(gl, program) {
-  const names = ['uSrc', 'uPrev', 'uRes', 'uCover', 'uTime', 'uTintA', 'uTintB',
-    ...SCALAR_PARAMS.map((k) => 'p' + cap(k))];
-  return Object.fromEntries(names.map((n) => [n, gl.getUniformLocation(program, n)]));
+function collectUniforms(
+  gl: WebGLRenderingContext,
+  program: WebGLProgram,
+): Record<UniformName, WebGLUniformLocation | null> {
+  const names: UniformName[] = [
+    'uSrc', 'uPrev', 'uRes', 'uCover', 'uTime', 'uTintA', 'uTintB',
+    ...SCALAR_PARAMS.map((key) => `p${capitalise(key)}` as UniformName),
+  ];
+  return Object.fromEntries(
+    names.map((name) => [name, gl.getUniformLocation(program, name)]),
+  ) as Record<UniformName, WebGLUniformLocation | null>;
 }
 
-// Maps canvas UV onto source UV so the frame fills the screen without stretching.
-function coverScale(src, w, h) {
+/** Maps canvas UV onto source UV so the frame fills the screen without stretching. */
+function coverScale(src: { w: number; h: number }, w: number, h: number): [number, number] {
   const srcAspect = src.w / src.h;
   const dstAspect = w / h;
   return srcAspect > dstAspect
@@ -359,8 +391,9 @@ function coverScale(src, w, h) {
     : [1, srcAspect / dstAspect];
 }
 
-function createTexture(gl) {
+function createTexture(gl: WebGLRenderingContext): WebGLTexture {
   const tex = gl.createTexture();
+  if (!tex) throw new Error('Could not allocate a texture');
   gl.bindTexture(gl.TEXTURE_2D, tex);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -369,33 +402,36 @@ function createTexture(gl) {
   return tex;
 }
 
-function createTarget(gl, w, h) {
+function createTarget(gl: WebGLRenderingContext, w: number, h: number): Target {
   const tex = createTexture(gl);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
   const fbo = gl.createFramebuffer();
+  if (!fbo) throw new Error('Could not allocate a framebuffer');
   gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   return { tex, fbo };
 }
 
-function buildProgram(gl, vertSrc, fragSrc) {
+function buildProgram(gl: WebGLRenderingContext, vertSrc: string, fragSrc: string): WebGLProgram {
   const program = gl.createProgram();
+  if (!program) throw new Error('Could not allocate a shader program');
   gl.attachShader(program, compile(gl, gl.VERTEX_SHADER, vertSrc));
   gl.attachShader(program, compile(gl, gl.FRAGMENT_SHADER, fragSrc));
   gl.linkProgram(program);
   if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    throw new Error('Shader link failed: ' + gl.getProgramInfoLog(program));
+    throw new Error(`Shader link failed: ${gl.getProgramInfoLog(program)}`);
   }
   return program;
 }
 
-function compile(gl, type, src) {
+function compile(gl: WebGLRenderingContext, type: number, src: string): WebGLShader {
   const shader = gl.createShader(type);
+  if (!shader) throw new Error('Could not allocate a shader');
   gl.shaderSource(shader, src);
   gl.compileShader(shader);
   if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    throw new Error('Shader compile failed: ' + gl.getShaderInfoLog(shader));
+    throw new Error(`Shader compile failed: ${gl.getShaderInfoLog(shader)}`);
   }
   return shader;
 }

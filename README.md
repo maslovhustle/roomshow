@@ -4,21 +4,17 @@ Point a camera at the room, restyle it live, project it back. Control it from a 
 
 Live at **https://roomshow.vercel.app**
 
-No build step, no bundler, no backend, no GPU bill. Static files plus a free Supabase
-project for the phone-to-laptop link.
+TypeScript and Vite, no backend, no GPU bill. Three static pages plus a free
+Supabase Realtime channel for the phone-to-laptop link.
 
 ## Run it
 
 ```bash
-python3 roomshow/dev-server.py 5199 roomshow
+npm install && npm run dev
 ```
 
-Then open `http://localhost:5199`.
-
-Use `dev-server.py` rather than `python3 -m http.server`: the stdlib server sends
-no `Cache-Control`, so browsers heuristically cache ES modules and keep running a
-stale copy after an edit. That shows up as `does not provide an export named X`
-for a symbol that is plainly there on disk. On the machine wired to the projector open the
+Then open `http://localhost:5199`. `npm run build` typechecks before it bundles,
+so a type error fails the build rather than the deploy. On the machine wired to the projector open the
 **stage**; on your phone open the **remote** with the same session code.
 
 `getUserMedia` needs a secure context, so camera and mic work on `localhost` and on
@@ -31,8 +27,10 @@ phone means deploying first.
 npx vercel deploy --prod
 ```
 
-Nothing is compiled and nothing is baked in at build time, so the same files run
-locally and in production.
+Vite builds three pages from one source tree. The stage and the remote never run
+in the same tab, so they are separate entry points — the phone never downloads
+the shader, and the Supabase client is a dynamic import that only arrives when a
+page actually opens a channel.
 
 ## The phone remote
 
@@ -40,10 +38,14 @@ The remote reaches the stage over a Supabase Realtime broadcast channel. Without
 keys it falls back to `BroadcastChannel`, which only reaches tabs in the same
 browser — enough to develop against, useless in a room.
 
-Create a free Supabase project, then paste its URL and anon key into the panel on
-the landing page. They are stored in `localStorage`, never committed. No tables, no
-row-level security, no schema: the channel is just a message bus, and the stage
-holds the only copy of the state.
+The project's own Supabase URL and publishable key ship in `.env`, so the app
+works with no setup screen. Both are publishable by design — Supabase sends them
+to every browser that loads any app built on it, and they grant nothing on their
+own. Point the app at a different project from the home page and that choice,
+stored in `localStorage`, overrides the built-in default.
+
+No tables, no row-level security, no schema: the channel is just a message bus,
+and the stage holds the only copy of the state.
 
 `localStorage` is per-origin *and* per-device, so the phone starts with none of
 that config, and nobody is hand-typing a 200-character anon key in a dark room.
@@ -108,14 +110,16 @@ exposes twenty scalars — geometry (`kaleido`, `mirror`, `slice`), sampling
 
 | Path | |
 |---|---|
-| `js/stylizer/webgl.js` | the engine — one shader, ping-pong framebuffers for feedback |
-| `js/presets.js` | looks as data: parameters plus an audio routing table |
-| `js/source.js` | camera, screen capture, and a procedural fallback |
-| `js/audio.js` | mic FFT to two smoothed numbers, with rolling auto-gain |
-| `js/sync.js` | Supabase Realtime, falling back to BroadcastChannel |
-| `js/recorder.js` | canvas to a file on disk |
+| `src/types.ts` | the shared vocabulary, including the `Stylizer` seam |
+| `src/stylizer/webgl.ts` | the engine — one shader, ping-pong framebuffers for feedback |
+| `src/presets.ts` | looks as data: parameters plus an audio routing table |
+| `src/source.ts` | camera, screen capture, and a procedural fallback |
+| `src/audio.ts` | mic FFT to two smoothed numbers, with rolling auto-gain |
+| `src/sync.ts` | Supabase Realtime, falling back to BroadcastChannel |
+| `src/recorder.ts` | canvas to a file on disk |
+| `public/boot-error.js` | classic script that surfaces module load failures |
 
-Adding a look is a data change in `presets.js`, never a code change. Everything the
+Adding a look is a data change in `presets.ts`, never a code change. Everything the
 remote can touch is a uniform, so switching looks mid-set cannot trigger a shader
 recompile.
 
@@ -134,13 +138,13 @@ Prompt-driven restyling needs real-time img2img diffusion (StreamDiffusion / SD-
 1–4 denoise steps, 512px). That is a server with a GPU on it, which is the thing this
 build deliberately avoids. The seam for it:
 
-- `WebGLStylizer` exposes `init` / `setSource` / `render` / `resize` / `dispose`. A
-  `DiffusionStylizer` implementing the same five methods drops into `stage.js` with
-  no other change.
+- The `Stylizer` interface in `src/types.ts` is the seam: `init` / `setSource` /
+  `render` / `resize` / `dispose`. A `DiffusionStylizer` implementing those five
+  methods drops into `stage.ts` with no other change.
 - `render` would push the source frame to a WebSocket and draw the most recent
   returned frame rather than rendering locally — the loop must never block on the
   network, or the stage stutters every time the venue wifi hiccups.
-- `state` gains a `prompt` field; `remote.html` gains a text input that patches it.
+- `StageState` gains a `prompt` field; `remote.html` gains a text input that patches it.
 
 Modal's free monthly credit covers roughly 10–15 GPU-hours, which is enough for a
 demo night but is a hard ceiling, not a free tier. Keep the WebGL path as the

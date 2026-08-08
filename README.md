@@ -2,6 +2,8 @@
 
 Point a camera at the room, restyle it live, project it back. Control it from a phone.
 
+Live at **https://roomshow.vercel.app**
+
 No build step, no bundler, no backend, no GPU bill. Static files plus a free Supabase
 project for the phone-to-laptop link.
 

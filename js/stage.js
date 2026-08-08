@@ -8,7 +8,7 @@
 
 import { normaliseCode, makeSessionCode, pairingHash, hasSupabase } from './config.js';
 import { createSync, msg } from './sync.js';
-import { PRESETS, resolveParams } from './presets.js';
+import { BANKS, banksLooks, bankOf, resolveParams } from './presets.js';
 import { WebGLStylizer } from './stylizer/webgl.js';
 import { SourceManager } from './source.js';
 import { CanvasRecorder, snapshot } from './recorder.js';
@@ -144,10 +144,14 @@ async function runAction(action) {
 }
 
 function onKey(e) {
+  // Number keys address the current bank, so eight keys cover forty looks.
+  const looks = banksLooks(bankOf(state.preset));
   const index = Number(e.key) - 1;
-  if (index >= 0 && index < PRESETS.length) return applyPatch({ preset: PRESETS[index].id });
+  if (index >= 0 && index < looks.length) return applyPatch({ preset: looks[index].id });
 
   const keys = {
+    '[': () => stepBank(-1),
+    ']': () => stepBank(1),
     f: () => toggleFullscreen(),
     r: () => runAction('record'),
     s: () => runAction('snapshot'),
@@ -162,6 +166,12 @@ function onKey(e) {
     e.preventDefault();
     fn();
   }
+}
+
+function stepBank(direction) {
+  const at = BANKS.findIndex((b) => b.id === bankOf(state.preset));
+  const next = BANKS[(at + direction + BANKS.length) % BANKS.length];
+  applyPatch({ preset: next.looks[0].id });
 }
 
 function toggleFullscreen() {
@@ -194,7 +204,7 @@ function loop(now) {
   frames++;
   if (now - fpsMark > 1000) {
     els.fps.textContent = `${frames} fps`;
-    els.preset.textContent = state.preset;
+    els.preset.textContent = `${bankOf(state.preset)} · ${state.preset}`;
     frames = 0;
     fpsMark = now;
   }

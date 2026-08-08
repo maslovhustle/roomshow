@@ -8,10 +8,15 @@ project for the phone-to-laptop link.
 ## Run it
 
 ```bash
-python3 -m http.server 5199 --directory roomshow
+python3 roomshow/dev-server.py 5199 roomshow
 ```
 
-Then open `http://localhost:5199`. On the machine wired to the projector open the
+Then open `http://localhost:5199`.
+
+Use `dev-server.py` rather than `python3 -m http.server`: the stdlib server sends
+no `Cache-Control`, so browsers heuristically cache ES modules and keep running a
+stale copy after an edit. That shows up as `does not provide an export named X`
+for a symbol that is plainly there on disk. On the machine wired to the projector open the
 **stage**; on your phone open the **remote** with the same session code.
 
 `getUserMedia` needs a secure context, so camera and mic work on `localhost` and on
@@ -67,12 +72,35 @@ dead phone away from a black screen.
 
 | Key | |
 |---|---|
-| `1`–`8` | looks |
+| `1`–`8` | looks in the current bank |
+| `[` `]` | previous / next bank |
 | `↑` `↓` | intensity |
 | `C` | camera / shapes |
 | `M` | mic reactivity |
 | `R` / `S` | record / snapshot |
 | `F` / `H` | fullscreen / hide HUD |
+
+## Looks
+
+Forty looks in five banks of eight: **Ink** (print and graphic), **Neon** (edge
+and glow), **Trail** (frame feedback), **Optic** (the polar fold), **Signal**
+(glitch and analog).
+
+Banks exist because forty in a flat list is twenty rows of scrolling on a phone
+in a dark room, which defeats the point of having a remote. Eight fits one
+thumb-reach screen and maps onto the number keys.
+
+The bank a phone is browsing is deliberately local, not shared: a VJ wants to
+scroll another bank before committing to it, and the stage rebroadcasts its
+state every two seconds, so a shared bank would yank the view back mid-scroll.
+The remote follows the stage into a new bank only when the look actually
+changes, and marks the bank holding the live look with a dot.
+
+A look is a parameter set plus an audio routing table, both data. The shader
+exposes twenty scalars — geometry (`kaleido`, `mirror`, `slice`), sampling
+(`pixel`, `chroma`), tone (`poster`, `invert`, `sat`, `contrast`, `duotone`,
+`hue`), texture (`halftone`, `scanline`, `grain`), motion (`feedback`, `warp`,
+`spin`), and finish (`edge`, `glow`, `vignette`).
 
 ## Layout
 
@@ -94,6 +122,11 @@ recompile.
 The visuals are a GPU shader chain, not a diffusion model. It runs at display
 refresh rate on the laptop's own GPU, offline, for free — but it restyles what the
 camera sees, it does not reimagine it, and there is no text prompt.
+
+That is a hard ceiling, not a tuning problem. A shader computes each pixel from
+its neighbours and has no idea there is a person in frame, so "Claymation" or
+"3D Render" are not reachable at any parameter setting — those need the image
+re-synthesised. The looks here are VJ looks: Halftone, Datamosh, Wireframe.
 
 Prompt-driven restyling needs real-time img2img diffusion (StreamDiffusion / SD-Turbo,
 1–4 denoise steps, 512px). That is a server with a GPU on it, which is the thing this

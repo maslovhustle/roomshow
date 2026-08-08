@@ -183,6 +183,38 @@ h2 {
   color: var(--muted);
 }
 
+.banks {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+  overflow-x: auto;
+  /* Five banks fit a phone at most sizes; on a narrow one this scrolls rather
+     than wrapping into a second row that pushes the looks off-screen. */
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.banks::-webkit-scrollbar { display: none; }
+
+.bank {
+  flex: none;
+  padding: 9px 15px;
+  border-radius: 999px;
+  font-size: 13px;
+  position: relative;
+}
+
+.bank.live::after {
+  content: "";
+  position: absolute;
+  top: 7px;
+  right: 8px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent-2);
+}
+
 #presets {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -203,7 +235,7 @@ h2 {
   height: 22px;
   flex: none;
   border-radius: 7px;
-  background: linear-gradient(135deg, var(--a), var(--b));
+  background: var(--g);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
 }
 

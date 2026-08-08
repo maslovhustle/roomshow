@@ -50,6 +50,9 @@ export const PARAM_DEFAULTS: Params = {
   ripple: 0,
   pinch: 0.5,    // neutral
   bloom: 0,      // multi-pass, unlike the single-pass `glow`
+  streak: 0,     // anamorphic stretch of the bloom; needs `bloom`
+  aberration: 0, // fringing that grows toward the corners
+  motion: 0,     // keeps only what changed since the previous frame
 
   tintA: [0.05, 0.02, 0.12],
   tintB: [0.98, 0.42, 0.86],
@@ -226,6 +229,51 @@ const RASTER = [
   look('blackhole', 'Black Hole', {
     pinch: 0.14, swirl: 0.45, feedback: 0.78, bloom: 0.6, spin: 0.3,
   }, { bass: { swirl: 0.4 }, energy: { bloom: 0.35 } }),
+];
+
+// Lens — what the glass and the sensor do, rather than what the paint does.
+// Aberration grows toward the corners the way a real lens disperses; the
+// anamorphic streak stretches the bloom sideways only, because a cylindrical
+// element compresses one axis; motion keeps only what changed between frames,
+// which on a dancefloor means the room draws itself and the furniture vanishes.
+const LENS = [
+  look('anamorphic', 'Anamorphic', {
+    bloom: 0.8, streak: 0.7, aberration: 0.3, contrast: 0.58, sat: 0.6, vignette: 0.45,
+  }, { bass: { streak: 0.3, bloom: 0.2 }, energy: { aberration: 0.25 } }),
+
+  look('flare', 'Flare', {
+    bloom: 0.9, streak: 0.35, halation: 0.4, sat: 0.62, contrast: 0.54,
+  }, { bass: { bloom: 0.1, streak: 0.35 }, energy: { halation: 0.3 } }),
+
+  look('motion', 'Motion Only', {
+    motion: 0.6, bloom: 0.45, sat: 0.7, contrast: 0.6,
+  }, { bass: { motion: -0.25 }, energy: { bloom: 0.3 } }),
+
+  look('ghosttrace', 'Ghost Trace', {
+    motion: 0.75, feedback: 0.85, warp: 0.2, bloom: 0.5, duotone: 0.7,
+    tintA: [0.0, 0.01, 0.05], tintB: [0.1, 0.3, 0.6],
+    tintC: [0.4, 0.8, 0.95], tintD: [0.95, 1.0, 1.0],
+  }, { bass: { motion: -0.3 }, energy: { feedback: 0.08 } }),
+
+  look('strobetrace', 'Strobe Trace', {
+    motion: 0.85, threshold: 0.5, bloom: 0.6, streak: 0.4, contrast: 0.7,
+  }, { bass: { motion: -0.35, bloom: 0.3 }, energy: { threshold: 0.2 } }),
+
+  look('cinemascope', 'Cinemascope', {
+    bloom: 0.5, streak: 0.85, aberration: 0.45, duotone: 0.75, contrast: 0.6, vignette: 0.55,
+    tintA: [0.02, 0.04, 0.09], tintB: [0.14, 0.24, 0.36],
+    tintC: [0.68, 0.62, 0.55], tintD: [1.0, 0.96, 0.9],
+  }, { bass: { streak: 0.15 }, energy: { bloom: 0.3 } }),
+
+  look('fringe', 'Fringe', {
+    aberration: 0.9, bloom: 0.35, sat: 0.72, contrast: 0.58, smooth: 0.2,
+  }, { bass: { aberration: 0.1 }, energy: { bloom: 0.3 } }),
+
+  look('nightvision', 'Night Vision', {
+    motion: 0.35, duotone: 0.95, grain: 0.45, bloom: 0.55, gamma: 0.68, vignette: 0.65,
+    tintA: [0.0, 0.03, 0.0], tintB: [0.02, 0.28, 0.08],
+    tintC: [0.3, 0.9, 0.35], tintD: [0.85, 1.0, 0.85],
+  }, { bass: { bloom: 0.35 }, energy: { grain: 0.3 } }),
 ];
 
 const INK = [
@@ -711,6 +759,7 @@ export const BANKS = [
   { id: 'cel', name: 'Cel', looks: CEL },
   { id: 'film', name: 'Film', looks: FILM },
   { id: 'raster', name: 'Raster', looks: RASTER },
+  { id: 'lens', name: 'Lens', looks: LENS },
   { id: 'ink', name: 'Ink', looks: INK },
   { id: 'neon', name: 'Neon', looks: NEON },
   { id: 'trail', name: 'Trail', looks: TRAIL },

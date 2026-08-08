@@ -1,6 +1,6 @@
 export type RGB = readonly [number, number, number];
 
-export type BankId = 'cel' | 'film' | 'raster' | 'ink' | 'neon' | 'trail' | 'optic' | 'signal';
+export type BankId = 'cel' | 'film' | 'raster' | 'lens' | 'ink' | 'neon' | 'trail' | 'optic' | 'signal';
 
 export type SourceKind = 'phone' | 'camera' | 'screen' | 'shapes';
 
@@ -65,6 +65,12 @@ export interface Params {
   pinch: number;
   /** Multi-pass bloom, applied after the main shader. */
   bloom: number;
+  /** Stretches the bloom horizontally into an anamorphic flare. Needs `bloom`. */
+  streak: number;
+  /** Colour fringing that grows toward the corners, the way a lens does. */
+  aberration: number;
+  /** Keeps only what changed since the previous frame. */
+  motion: number;
   /** Four stops of the gradient map, dark to light. */
   tintA: RGB;
   tintB: RGB;

@@ -114,14 +114,26 @@ that case reports a legible failure on the phone instead of a black projector.
 
 ## Looks
 
-Sixty-four looks in eight banks of eight: **Cel** (flat colour under ink lines),
-**Film** (stock emulation), **Raster** (the frame rebuilt from a grid), **Ink**
-(print and graphic), **Neon** (edge and glow), **Trail** (frame feedback),
-**Optic** (the polar fold), **Signal** (glitch and analog).
+Seventy-two looks in nine banks of eight: **Cel** (flat colour under ink lines),
+**Film** (stock emulation), **Raster** (the frame rebuilt from a grid),
+**Lens** (optics and sensor), **Ink** (print and graphic), **Neon** (edge and
+glow), **Trail** (frame feedback), **Optic** (the polar fold), **Signal**
+(glitch and analog).
 
 Banks exist because a flat list of that length is two dozen rows of scrolling on
 a phone in a dark room, which defeats the point of having a remote. Eight fits
 one thumb-reach screen and maps onto the number keys.
+
+**Lens** is what the glass and the sensor do rather than what the paint does.
+`aberration` grows with distance from centre, so the middle of frame stays clean
+while the corners smear — that is dispersion, as opposed to `chroma`'s flat
+sideways shift, which reads as a signal fault. `streak` keeps widening the bloom
+horizontally only, because a cylindrical element compresses one axis; blurring
+both axes equally is just a bigger bloom, and the blue tint is why real
+anamorphic flares are blue. `motion` differences against the previous *source*
+frame rather than the previous output — the output already carries trails and
+vignettes, so differencing it would detect the effects instead of the room. On a
+dancefloor that means the crowd draws itself and the furniture disappears.
 
 **Raster** rebuilds the frame out of a grid. **ASCII** picks one glyph per cell
 from a brightness ramp rendered into a texture atlas at startup — cheaper and
@@ -160,12 +172,13 @@ The remote follows the stage into a new bank only when the look actually
 changes, and marks the bank holding the live look with a dot.
 
 A look is a parameter set plus an audio routing table, both data. The shader
-exposes thirty-two scalars plus four gradient stops — geometry (`kaleido`,
+exposes thirty-five scalars plus four gradient stops — geometry (`kaleido`,
 `mirror`, `slice`, `swirl`, `ripple`, `pinch`), sampling (`pixel`, `chroma`,
-`smooth`), tone (`poster`, `invert`, `sat`, `contrast`, `gamma`, `temp`,
-`threshold`, `hue`, `duotone`), raster (`halftone`, `dither`, `scanline`,
-`ascii`, `led`, `grain`, `emboss`), motion (`feedback`, `warp`, `spin`), and
-finish (`edge`, `glow`, `bloom`, `halation`, `vignette`).
+`aberration`, `smooth`), tone (`poster`, `invert`, `sat`, `contrast`, `gamma`,
+`temp`, `threshold`, `hue`, `duotone`), raster (`halftone`, `dither`,
+`scanline`, `ascii`, `led`, `grain`, `emboss`), motion (`feedback`, `warp`,
+`spin`, `motion`), and finish (`edge`, `glow`, `bloom`, `streak`, `halation`,
+`vignette`).
 
 That vocabulary is deliberately the standard one — the same operations any
 image-processing chain exposes. Quality here comes from having the right

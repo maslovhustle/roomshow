@@ -60,8 +60,12 @@ uniform float pAscii;
 uniform float pLed;
 uniform float pRipple;
 uniform float pPinch;
+uniform float pAberration;
+uniform float pMotion;
 uniform sampler2D uGlyphs;
 uniform float uGlyphCount;
+uniform sampler2D uMotionPrev;
+uniform sampler2D uMotionCurr;
 uniform vec3  uTintA;
 uniform vec3  uTintB;
 uniform vec3  uTintC;
@@ -188,13 +192,27 @@ void main() {
     uv = (floor(uv * grid) + 0.5) / grid;
   }
 
-  // RGB split. Cheap, and reads as "signal" rather than "filter" on a projector.
-  vec2 split = vec2(pChroma * 0.014, 0.0);
+  // Two kinds of colour fringing in one offset. chroma is a flat sideways shift
+  // and reads as a signal fault; aberration grows with distance from centre,
+  // which is what a real lens does — the middle of frame stays clean while the
+  // corners smear.
+  vec2 split = vec2(pChroma * 0.014, 0.0) + (uv - 0.5) * pAberration * 0.05;
   vec3 col = vec3(
     sampleBase(uv + split).r,
     sampleBase(uv).g,
     sampleBase(uv - split).b
   );
+
+  if (pMotion > 0.001) {
+    // Difference against the previous source frame, not the previous output —
+    // the output already carries trails and vignettes, so differencing it would
+    // detect the effects rather than the room.
+    vec2 c = clamp((uv - 0.5) * uCover + 0.5, 0.002, 0.998);
+    float now = luma(texture2D(uMotionCurr, c).rgb);
+    float was = luma(texture2D(uMotionPrev, c).rgb);
+    float moved = clamp(abs(now - was) * mix(5.0, 18.0, pMotion), 0.0, 1.0);
+    col = mix(col, col * moved, pMotion);
+  }
 
   if (pEdge > 0.001) {
     vec2 t = 1.0 / uRes;
@@ -379,21 +397,32 @@ varying vec2 vUv;
 uniform sampler2D uScene;
 uniform sampler2D uBloom;
 uniform float uAmount;
+uniform float uStreak;
 void main() {
   vec3 scene = texture2D(uScene, vUv).rgb;
   if (uAmount < 0.001) { gl_FragColor = vec4(scene, 1.0); return; }
   vec3 glow = texture2D(uBloom, vUv).rgb * uAmount * 1.6;
+  // Anamorphic flares are blue because the cylindrical element disperses short
+  // wavelengths hardest. Tinting only the streak keeps a plain bloom neutral.
+  glow = mix(glow, glow * vec3(0.45, 0.68, 1.0) * 1.5, uStreak);
   // Screen rather than add: bloom should lift the highlights, not clip them
   // into flat white.
   gl_FragColor = vec4(1.0 - (1.0 - scene) * (1.0 - clamp(glow, 0.0, 1.0)), 1.0);
 }`;
+
+/** Straight blit, used to snapshot the source frame for motion differencing. */
+const FRAG_COPY = `
+precision mediump float;
+varying vec2 vUv;
+uniform sampler2D uTex;
+void main() { gl_FragColor = texture2D(uTex, vUv); }`;
 
 const SCALAR_PARAMS = [
   'mirror', 'kaleido', 'pixel', 'chroma', 'edge', 'poster',
   'hue', 'duotone', 'feedback', 'warp', 'spin', 'glow', 'vignette',
   'invert', 'halftone', 'scanline', 'grain', 'slice', 'sat', 'contrast', 'smooth',
   'dither', 'threshold', 'temp', 'gamma', 'swirl', 'emboss', 'halation',
-  'ascii', 'led', 'ripple', 'pinch',
+  'ascii', 'led', 'ripple', 'pinch', 'aberration', 'motion',
 ] as const satisfies readonly ScalarParam[];
 
 // Ramp from sparse to dense. Rendered into a strip once at startup and sampled
@@ -404,6 +433,7 @@ const TINTS = ['tintA', 'tintB', 'tintC', 'tintD'] as const;
 
 type UniformName =
   | 'uSrc' | 'uPrev' | 'uRes' | 'uCover' | 'uTime' | 'uGlyphs' | 'uGlyphCount'
+  | 'uMotionPrev' | 'uMotionCurr'
   | `u${Capitalize<(typeof TINTS)[number]>}`
   | `p${Capitalize<(typeof SCALAR_PARAMS)[number]>}`;
 
@@ -418,6 +448,11 @@ export class WebGLStylizer implements Stylizer {
   private progBright!: WebGLProgram;
   private progBlur!: WebGLProgram;
   private progComposite!: WebGLProgram;
+  private progCopy!: WebGLProgram;
+  private copyUniform: WebGLUniformLocation | null = null;
+  private motion: Target[] = [];
+  private motionSize = { w: 2, h: 2 };
+  private motionIndex = 0;
   private quad!: WebGLBuffer;
   private srcTex!: WebGLTexture;
   private glyphTex!: WebGLTexture;
@@ -428,6 +463,7 @@ export class WebGLStylizer implements Stylizer {
     scene: WebGLUniformLocation | null;
     bloom: WebGLUniformLocation | null;
     amount: WebGLUniformLocation | null;
+    streak: WebGLUniformLocation | null;
   };
   private targets: Target[] = [];
   private bloom: Target[] = [];
@@ -455,6 +491,7 @@ export class WebGLStylizer implements Stylizer {
     this.progBright = buildProgram(gl, VERT, FRAG_BRIGHT);
     this.progBlur = buildProgram(gl, VERT, FRAG_BLUR);
     this.progComposite = buildProgram(gl, VERT, FRAG_COMPOSITE);
+    this.progCopy = buildProgram(gl, VERT, FRAG_COPY);
 
     const quad = gl.createBuffer();
     if (!quad) throw new Error('Could not allocate a vertex buffer');
@@ -483,7 +520,9 @@ export class WebGLStylizer implements Stylizer {
       scene: gl.getUniformLocation(this.progComposite, 'uScene'),
       bloom: gl.getUniformLocation(this.progComposite, 'uBloom'),
       amount: gl.getUniformLocation(this.progComposite, 'uAmount'),
+      streak: gl.getUniformLocation(this.progComposite, 'uStreak'),
     };
+    this.copyUniform = gl.getUniformLocation(this.progCopy, 'uTex');
 
     this.resize(this.canvas.width, this.canvas.height);
     this.ready = true;
@@ -504,11 +543,19 @@ export class WebGLStylizer implements Stylizer {
       this.canvas.width = w;
       this.canvas.height = h;
     }
-    for (const target of [...this.targets, ...this.bloom]) {
+    for (const target of [...this.targets, ...this.bloom, ...this.motion]) {
       gl.deleteFramebuffer(target.fbo);
       gl.deleteTexture(target.tex);
     }
     this.targets = [createTarget(gl, w, h), createTarget(gl, w, h)];
+    // Quarter resolution for motion. Differencing full-res frames mostly
+    // detects sensor noise; downsampling first is the cheapest low-pass there
+    // is, and motion is a broad signal anyway.
+    this.motionSize = { w: Math.max(2, w >> 2), h: Math.max(2, h >> 2) };
+    this.motion = [
+      createTarget(gl, this.motionSize.w, this.motionSize.h),
+      createTarget(gl, this.motionSize.w, this.motionSize.h),
+    ];
     // Half resolution: a bloom is a wide blur, so the detail thrown away here is
     // detail the blur would have destroyed anyway, and it quarters the cost.
     this.bloomSize = { w: Math.max(2, w >> 1), h: Math.max(2, h >> 1) };
@@ -538,6 +585,21 @@ export class WebGLStylizer implements Stylizer {
 
     const read = this.targets[this.index]!;
     const write = this.targets[1 - this.index]!;
+    const motionPrev = this.motion[this.motionIndex]!;
+    const motionCurr = this.motion[1 - this.motionIndex]!;
+
+    // Snapshot this frame's source before the main pass, so the shader can read
+    // both it and the previous snapshot in the same draw.
+    if (params.motion > 0.001) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, motionCurr.fbo);
+      gl.viewport(0, 0, this.motionSize.w, this.motionSize.h);
+      gl.useProgram(this.progCopy);
+      this.bindQuad(this.progCopy);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, this.srcTex);
+      gl.uniform1i(this.copyUniform, 0);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, write.fbo);
     gl.viewport(0, 0, w, h);
@@ -554,6 +616,12 @@ export class WebGLStylizer implements Stylizer {
     gl.bindTexture(gl.TEXTURE_2D, this.glyphTex);
     gl.uniform1i(this.uniforms.uGlyphs, 2);
     gl.uniform1f(this.uniforms.uGlyphCount, ASCII_RAMP.length);
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, motionPrev.tex);
+    gl.uniform1i(this.uniforms.uMotionPrev, 3);
+    gl.activeTexture(gl.TEXTURE4);
+    gl.bindTexture(gl.TEXTURE_2D, motionCurr.tex);
+    gl.uniform1i(this.uniforms.uMotionCurr, 4);
 
     const [coverX, coverY] = coverScale(this.sourceSize, w, h);
     gl.uniform2f(this.uniforms.uRes, w, h);
@@ -570,7 +638,7 @@ export class WebGLStylizer implements Stylizer {
 
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
-    if (params.bloom > 0.001) this.renderBloom(write);
+    if (params.bloom > 0.001) this.renderBloom(write, params.streak);
 
     // Composite to the visible canvas.
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -584,13 +652,15 @@ export class WebGLStylizer implements Stylizer {
     gl.bindTexture(gl.TEXTURE_2D, this.bloom[0]!.tex);
     gl.uniform1i(this.uComp.bloom, 1);
     gl.uniform1f(this.uComp.amount, params.bloom);
+    gl.uniform1f(this.uComp.streak, params.streak);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
     this.index = 1 - this.index;
+    if (params.motion > 0.001) this.motionIndex = 1 - this.motionIndex;
   }
 
   /** Bright pass, then one separable gaussian, leaving the result in bloom[0]. */
-  private renderBloom(scene: Target): void {
+  private renderBloom(scene: Target, streak: number): void {
     const gl = this.gl!;
     const [a, b] = [this.bloom[0]!, this.bloom[1]!];
     const { w, h } = this.bloomSize;
@@ -618,19 +688,40 @@ export class WebGLStylizer implements Stylizer {
     gl.bindTexture(gl.TEXTURE_2D, b.tex);
     gl.uniform2f(this.uBlur.dir, 0, 1 / h);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+    // Anamorphic: keep widening horizontally only. A cylindrical lens element
+    // compresses one axis, so its flares smear sideways while staying tight
+    // vertically — an equal blur in both axes is just a bigger bloom.
+    if (streak > 0.001) {
+      for (let pass = 1; pass <= 3; pass++) {
+        const from = pass % 2 === 1 ? a : b;
+        const to = pass % 2 === 1 ? b : a;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, to.fbo);
+        gl.bindTexture(gl.TEXTURE_2D, from.tex);
+        gl.uniform2f(this.uBlur.dir, (streak * 5 * pass) / w, 0);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+      }
+      // Three passes end on b, but the composite reads a.
+      gl.bindFramebuffer(gl.FRAMEBUFFER, a.fbo);
+      gl.bindTexture(gl.TEXTURE_2D, b.tex);
+      gl.uniform2f(this.uBlur.dir, 0, 0);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
   }
 
   dispose(): void {
     const gl = this.gl;
     if (!gl) return;
-    for (const target of [...this.targets, ...this.bloom]) {
+    for (const target of [...this.targets, ...this.bloom, ...this.motion]) {
       gl.deleteFramebuffer(target.fbo);
       gl.deleteTexture(target.tex);
     }
     gl.deleteTexture(this.srcTex);
     gl.deleteTexture(this.glyphTex);
     gl.deleteBuffer(this.quad);
-    for (const program of [this.progMain, this.progBright, this.progBlur, this.progComposite]) {
+    for (const program of [
+      this.progMain, this.progBright, this.progBlur, this.progComposite, this.progCopy,
+    ]) {
       gl.deleteProgram(program);
     }
     this.ready = false;
@@ -655,6 +746,7 @@ function collectUniforms(
 ): Record<UniformName, WebGLUniformLocation | null> {
   const names: UniformName[] = [
     'uSrc', 'uPrev', 'uRes', 'uCover', 'uTime', 'uGlyphs', 'uGlyphCount',
+    'uMotionPrev', 'uMotionCurr',
     ...TINTS.map((key) => `u${capitalise(key)}` as UniformName),
     ...SCALAR_PARAMS.map((key) => `p${capitalise(key)}` as UniformName),
   ];

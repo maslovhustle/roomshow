@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>roomshow — stage</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body class="stage">
+  <canvas id="stage"></canvas>
+
+  <div id="hud">
+    <h1>session</h1>
+    <div id="code" class="mono">····</div>
+
+    <div class="row">
+      <span id="status">connecting…</span>
+      <span id="nowPreset" class="mono"></span>
+      <span id="fps" class="mono"></span>
+      <span id="recDot" hidden>REC</span>
+    </div>
+
+    <div class="row">
+      <a id="remoteUrl" href="#" class="mono"></a>
+      <button id="copyLink" style="padding:4px 10px;font-size:12px">copy link</button>
+    </div>
+
+    <div class="row">
+      <span><kbd>1</kbd>–<kbd>8</kbd> looks</span>
+      <span><kbd>C</kbd> camera</span>
+      <span><kbd>M</kbd> mic</span>
+      <span><kbd>R</kbd> rec</span>
+      <span><kbd>S</kbd> shot</span>
+      <span><kbd>F</kbd> full</span>
+      <span><kbd>H</kbd> hide</span>
+      <span><kbd>↑</kbd><kbd>↓</kbd> intensity</span>
+    </div>
+
+    <div id="error" hidden></div>
+  </div>
+
+  <script type="module" src="js/stage.js"></script>
+</body>
+</html>

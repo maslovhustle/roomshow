@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#07060c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>roomshow — remote</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body class="remote">
+  <header class="remote-head">
+    <div id="code" class="mono">····</div>
+    <div id="status">connecting…</div>
+  </header>
+
+  <p id="notice" hidden></p>
+
+  <h2>Look</h2>
+  <div id="presets"></div>
+
+  <h2>Intensity</h2>
+  <div class="fader-label">
+    <span>how hard the music pushes it</span>
+    <span id="intensityValue">65%</span>
+  </div>
+  <input id="intensity" type="range" min="0" max="100" value="65">
+
+  <h2>Input</h2>
+  <div id="sources" class="row-3">
+    <button data-source="camera">Camera</button>
+    <button data-source="screen">Screen</button>
+    <button data-source="shapes">Shapes</button>
+  </div>
+
+  <h2>Toggles</h2>
+  <div class="row-2">
+    <button id="mirror">Mirror</button>
+    <button id="mic">Mic react</button>
+  </div>
+
+  <h2>Capture</h2>
+  <div class="row-2">
+    <button id="record">Record</button>
+    <button id="snapshot">Snapshot</button>
+  </div>
+
+  <script type="module" src="js/remote.js"></script>
+</body>
+</html>

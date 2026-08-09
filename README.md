@@ -228,6 +228,54 @@ Each visit renders a short run of frames rather than one, because the single
 engine carries one feedback buffer and a trail look would otherwise preview with
 whatever the previous tile left in it.
 
+## Tests
+
+```bash
+npm test        # unit + integration, jsdom, ~3s
+npm run test:e2e  # Playwright against the production build
+```
+
+A pyramid, weighted the way the risk is.
+
+**Unit** covers the pure logic, which is where most of the behaviour lives:
+preset resolution and its clamping, the gradient-stop back-fill that keeps
+two-colour looks rendering as they always did, session-code normalisation, the
+pairing round trip, and the wire format. Every look is checked for a complete
+parameter set, in-range values, and audio routes that name real parameters — a
+typo in a catalogue this size is otherwise invisible until someone selects that
+look mid-set.
+
+**Integration** covers the two places where components meet and where the real
+bugs have been: the BroadcastChannel transport (delivery, session isolation, no
+self-delivery, unsubscribe), and the WebRTC handshake against a fake
+`RTCPeerConnection` that reproduces the real state machine. That fake earns its
+keep — writing it surfaced a live defect, since `reset()` called `stop()` and so
+discarded exactly the ICE candidates that had arrived before the offer.
+
+**End to end** runs Playwright against the built site: the stage actually paints
+(sampled pixels, not a screenshot diff), keyboard bank and look selection, a
+remote in a second page driving the stage over BroadcastChannel, a late-joining
+remote catching up, and the gallery filtering and painting previews. These are
+few and slow — every stage page drives WebGL through SwiftShader — so worker
+count and viewport are held down deliberately.
+
+Playwright ships no Chromium for macOS 12, so locally it drives the installed
+Chrome; CI is Linux and uses the pinned bundled browser.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs types and unit tests first, then the browser
+tests, then deploys. Deployment is gated behind both, which is the reason it
+lives here rather than letting Vercel build straight from a push.
+
+The deploy job needs three repository secrets:
+
+| Secret | Where it comes from |
+|---|---|
+| `VERCEL_TOKEN` | vercel.com → Account Settings → Tokens |
+| `VERCEL_ORG_ID` | `.vercel/project.json` after `vercel link` |
+| `VERCEL_PROJECT_ID` | same file |
+
 ## Layout
 
 | Path | |

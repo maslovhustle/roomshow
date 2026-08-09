@@ -162,7 +162,10 @@ export class StageReceiver {
   }
 
   private reset(): RTCPeerConnection {
-    this.stop();
+    // Close the old peer but keep the queue: candidates routinely arrive ahead
+    // of the offer that gives them somewhere to go, and calling stop() here
+    // would discard exactly the ones this connection is about to need.
+    this.pc?.close();
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
     this.pc = pc;
 

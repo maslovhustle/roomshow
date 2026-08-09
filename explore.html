@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <meta name="theme-color" content="#07060c">
+  <title>roomshow — explore looks</title>
+</head>
+<body class="explore">
+  <header class="explore-head">
+    <a class="back" href="/">← roomshow</a>
+    <h1>Looks</h1>
+    <div class="explore-tools">
+      <span id="count" class="hint"></span>
+      <button id="useCamera">Use my camera</button>
+    </div>
+  </header>
+
+  <nav id="filters" class="banks"></nav>
+
+  <main id="grid" class="grid"></main>
+
+  <p class="hint explore-note">
+    Previews run the real engine on a procedural source. Trail-heavy looks build
+    up over time, so a preview shows a shorter tail than the stage will.
+  </p>
+
+  <script src="/boot-error.js"></script>
+  <script type="module" src="/src/explore.ts"></script>
+</body>
+</html>

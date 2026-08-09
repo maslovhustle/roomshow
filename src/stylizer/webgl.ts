@@ -205,10 +205,15 @@ void main() {
   }
 
   if (pDistress > 0.001) {
-    // Displacing by the medium texture, not by a smooth function, so edges
-    // break up along the fibre rather than along a sine wave.
-    vec2 fibre = texture2D(uMedium, uv * 2.3).rg - 0.5;
-    uv += fibre * pDistress * 0.035;
+    // Displace along the texture's own gradient rather than by its raw value.
+    // A gradient points across fibres and creases, so edges get pushed along
+    // the structure that is actually there — the same reason normal maps
+    // displace by slope and not by height.
+    vec2 muv = uv * 2.3;
+    float m0 = texture2D(uMedium, muv).r;
+    float mx = texture2D(uMedium, muv + vec2(0.004, 0.0)).r;
+    float my = texture2D(uMedium, muv + vec2(0.0, 0.004)).r;
+    uv += vec2(mx - m0, my - m0) * pDistress * 0.6;
   }
 
   if (pRipple > 0.001) {
@@ -860,8 +865,11 @@ function coverScale(src: { w: number; h: number }, w: number, h: number): [numbe
  * has wear, emulsion clumps — the medium is spatially uneven, and that
  * unevenness is most of the impression.
  *
- * Value noise over several octaves, plus a horizontally stretched octave for
- * grain direction. Power of two and REPEAT so it tiles without a visible seam.
+ * Drawn rather than noised. Paper is felted cellulose: long thin strands lying
+ * across each other in every direction. Value noise is isotropic blur and never
+ * produces a strand, so this strokes several thousand fibres directly, then
+ * lays in blotches, creases and speckle on top. Canvas 2D does that far faster
+ * than a shader could, and only once.
  */
 function buildMediumTexture(): HTMLCanvasElement {
   const size = 512;
@@ -871,50 +879,102 @@ function buildMediumTexture(): HTMLCanvasElement {
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('2D canvas is not available for the medium texture');
 
-  const image = ctx.createImageData(size, size);
-  const noise = (x: number, y: number, period: number): number => {
-    // Wrapping value noise: sampling on a lattice that divides `size` exactly
-    // keeps the left and right edges identical, so REPEAT shows no seam.
-    const gx = Math.floor(x / period);
-    const gy = Math.floor(y / period);
-    const fx = (x / period) - gx;
-    const fy = (y / period) - gy;
-    const wrap = size / period;
-    const at = (ix: number, iy: number): number => {
-      const h = Math.sin(((ix % wrap) + wrap) % wrap * 127.1 + ((iy % wrap) + wrap) % wrap * 311.7) * 43758.5453;
-      return h - Math.floor(h);
-    };
-    const ease = (t: number): number => t * t * (3 - 2 * t);
-    const ux = ease(fx);
-    const uy = ease(fy);
-    const a = at(gx, gy);
-    const b = at(gx + 1, gy);
-    const c = at(gx, gy + 1);
-    const d = at(gx + 1, gy + 1);
-    return (a + (b - a) * ux) + ((c + (d - c) * ux) - (a + (b - a) * ux)) * uy;
+  // Overlay treats 0.5 as neutral, so the stock has to sit on mid grey or it
+  // would tint the whole frame before adding any character.
+  ctx.fillStyle = '#808080';
+  ctx.fillRect(0, 0, size, size);
+
+  // Anything drawn near an edge is drawn again on the far side, so the texture
+  // tiles across a projector of any width without a seam.
+  const wrapped = (x: number, y: number, draw: (x: number, y: number) => void): void => {
+    const margin = 48;
+    draw(x, y);
+    if (x < margin) draw(x + size, y);
+    if (x > size - margin) draw(x - size, y);
+    if (y < margin) draw(x, y + size);
+    if (y > size - margin) draw(x, y - size);
   };
 
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      let v = 0;
-      v += noise(x, y, 64) * 0.45;
-      v += noise(x, y, 32) * 0.25;
-      v += noise(x, y, 16) * 0.15;
-      v += noise(x, y, 8) * 0.1;
-      // Fibre: one octave stretched along x so the grain has a direction.
-      v += noise(x, y, 4) * 0.05 + noise(x * 0.15, y * 4, 16) * 0.12;
-      // Centre on mid grey — overlay treats 0.5 as neutral, so an off-centre
-      // texture would tint the whole frame before it added any character.
-      const level = Math.max(0, Math.min(1, 0.5 + (v - 0.55) * 1.35));
-      const i = (y * size + x) * 4;
-      const byte = Math.round(level * 255);
-      image.data[i] = byte;
-      image.data[i + 1] = byte;
-      image.data[i + 2] = byte;
-      image.data[i + 3] = 255;
-    }
+  // Large soft blotches: uneven absorbency across the sheet.
+  for (let i = 0; i < 26; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const r = 60 + Math.random() * 160;
+    const light = Math.random() > 0.5;
+    wrapped(x, y, (px, py) => {
+      const g = ctx.createRadialGradient(px, py, 0, px, py, r);
+      const a = 0.05 + Math.random() * 0.05;
+      g.addColorStop(0, light ? `rgba(255,255,255,${a})` : `rgba(0,0,0,${a})`);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(px - r, py - r, r * 2, r * 2);
+    });
   }
-  ctx.putImageData(image, 0, 0);
+
+  // Fibre. A slight bias toward one axis gives the sheet a grain direction,
+  // which is what makes it tear predictably in one direction and not the other.
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 5200; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const angle = (Math.random() < 0.62 ? 0 : Math.PI / 2) + (Math.random() - 0.5) * 1.5;
+    const len = 5 + Math.random() * 26;
+    const light = Math.random() > 0.5;
+    ctx.strokeStyle = light
+      ? `rgba(255,255,255,${0.02 + Math.random() * 0.05})`
+      : `rgba(0,0,0,${0.02 + Math.random() * 0.05})`;
+    ctx.lineWidth = 0.4 + Math.random() * 1.1;
+    wrapped(x, y, (px, py) => {
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(px + Math.cos(angle) * len, py + Math.sin(angle) * len);
+      ctx.stroke();
+    });
+  }
+
+  // Creases: a lit edge against a shadowed one, which is what a fold is.
+  for (let i = 0; i < 7; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const angle = Math.random() * Math.PI * 2;
+    const len = 140 + Math.random() * 260;
+    const dx = Math.cos(angle) * len;
+    const dy = Math.sin(angle) * len;
+    const nx = -Math.sin(angle);
+    const ny = Math.cos(angle);
+    wrapped(x, y, (px, py) => {
+      for (const [side, colour] of [[-1, 'rgba(255,255,255,0.16)'], [1, 'rgba(0,0,0,0.16)']] as const) {
+        ctx.strokeStyle = colour;
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(px + nx * side, py + ny * side);
+        ctx.quadraticCurveTo(
+          px + dx * 0.5 + nx * (side + (Math.random() - 0.5) * 18),
+          py + dy * 0.5 + ny * (side + (Math.random() - 0.5) * 18),
+          px + dx + nx * side,
+          py + dy + ny * side,
+        );
+        ctx.stroke();
+      }
+    });
+  }
+
+  // Speckle: inclusions and dust, sparse enough to read as flaws rather than
+  // as noise.
+  for (let i = 0; i < 1800; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const r = 0.4 + Math.random() * 1.4;
+    ctx.fillStyle = Math.random() > 0.35
+      ? `rgba(0,0,0,${0.05 + Math.random() * 0.18})`
+      : `rgba(255,255,255,${0.05 + Math.random() * 0.16})`;
+    wrapped(x, y, (px, py) => {
+      ctx.beginPath();
+      ctx.arc(px, py, r, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+
   return canvas;
 }
 

@@ -130,16 +130,22 @@ arithmetic to every pixel. That is exactly what a CSS filter does, and exactly
 why the result reads as one. A physical medium is uneven — paper has fibre, tape
 has wear, emulsion clumps — and that unevenness is most of the impression.
 
-So the medium is synthesised once at startup: wrapping value noise over several
-octaves, plus a horizontally stretched octave so the grain has direction. It is
-laid on with **overlay**, not multiply, because multiply only darkens and reads
-as dirt, while overlay keeps the midpoint neutral so the stock can both lift and
-deepen. The same texture drives `distress` as a displacement, so edges break
-along the grain instead of along a smooth curve.
+So the medium is **drawn**, not noised. Paper is felted cellulose — long thin
+strands lying across each other — and value noise is isotropic blur that never
+produces a strand. The generator strokes several thousand fibres directly onto a
+canvas with a bias toward one axis (which is why paper tears cleanly in one
+direction), then lays in absorbency blotches, creases as a lit edge against a
+shadowed one, and sparse speckle. Anything near an edge is drawn again on the
+far side so the result tiles seamlessly at any projector size.
 
-That texture is generated, not scanned. Libraries built around real scanned
-paper have a grain that noise does not reproduce exactly; this gets the
-structural quality without shipping any assets.
+It goes on with **overlay**, not multiply: multiply only darkens, so a paper
+layer applied that way reads as dirt, while overlay holds the midpoint neutral
+and lets the stock both lift and deepen. `distress` displaces along the
+texture's *gradient* rather than its raw value — a gradient points across
+fibres and creases, so edges get pushed along structure that is actually there,
+the same reason normal maps displace by slope and not by height.
+
+Everything is generated at runtime; the project ships no texture assets.
 
 The bank also fixed **VHS**, which had been uniform pixelation plus a flat RGB
 shift — the failure in miniature. Real tape carries luminance and colour on
@@ -208,6 +214,19 @@ exposes thirty-nine scalars plus four gradient stops — geometry (`kaleido`,
 That vocabulary is deliberately the standard one — the same operations any
 image-processing chain exposes. Quality here comes from having the right
 primitives, not from a model.
+
+## Explore
+
+`explore.html` previews every look live, filtered by bank, and links each tile
+into the stage.
+
+Eighty live previews cannot each hold a WebGL context — browsers cap that near
+sixteen and silently drop the oldest. There is one offscreen context; tiles are
+plain 2D canvases receiving a blit of it, and a round-robin walks only the tiles
+an IntersectionObserver reports on screen, so cost stays flat as the list grows.
+Each visit renders a short run of frames rather than one, because the single
+engine carries one feedback buffer and a trail look would otherwise preview with
+whatever the previous tile left in it.
 
 ## Layout
 

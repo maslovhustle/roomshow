@@ -16,6 +16,7 @@ export default defineConfig({
         landing: entry('index.html'),
         stage: entry('stage.html'),
         remote: entry('remote.html'),
+        explore: entry('explore.html'),
       },
     },
   },

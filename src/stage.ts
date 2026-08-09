@@ -8,7 +8,7 @@
 
 import './styles/app.css';
 import { hasSupabase, makeSessionCode, normaliseCode, pairingHash } from './config';
-import { BANKS, bankOf, banksLooks, resolveParams } from './presets';
+import { BANKS, PRESETS, bankOf, banksLooks, resolveParams } from './presets';
 import { createSync, msg } from './sync';
 import { WebGLStylizer } from './stylizer/webgl';
 import { SourceManager } from './source';
@@ -18,6 +18,7 @@ import { StageReceiver } from './webrtc';
 import type { StageAction, StageState, Sync, SyncMessage } from './types';
 
 const MAX_WIDTH = 1920;
+const PRESET_IDS = new Set<string>(PRESETS.map((preset) => preset.id));
 
 const canvas = must<HTMLCanvasElement>('stage');
 const hud = must<HTMLDivElement>('hud');
@@ -38,8 +39,12 @@ const source = new SourceManager();
 const audio = new AudioReactor();
 const recorder = new CanvasRecorder(canvas);
 
+// A look can be named in the URL, which is what the gallery links to. An
+// unknown id falls through to the default rather than rendering nothing.
+const wanted = new URLSearchParams(location.search).get('look');
+
 const state: StageState = {
-  preset: 'comic',
+  preset: wanted && PRESET_IDS.has(wanted) ? wanted : 'comic',
   intensity: 0.65,
   source: 'shapes',
   mirror: 0,

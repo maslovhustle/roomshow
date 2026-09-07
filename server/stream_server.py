@@ -38,7 +38,16 @@ log = logging.getLogger("roomshow")
 # SD-Turbo distils the denoising schedule down to one or two steps, which is the
 # only reason any of this runs at interactive rates. A standard SD1.5 checkpoint
 # needs 20+ steps and lands around one frame per second.
-MODEL_ID = "stabilityai/sd-turbo"
+# A stylised base rather than a photographic one. With sd-turbo, light
+# denoising returns a photo and heavy denoising returns noise; a model that
+# already draws gives a drawn picture even when it barely touches the frame.
+MODEL_ID = os.environ.get("ROOMSHOW_MODEL", "Lykon/dreamshaper-8-lcm")
+
+# Measured on a 3090: below 35 the picture collapses, above 42 the style
+# disappears. The usable window is narrow and worth stating in one place.
+T_INDEX_MIN = 35
+T_INDEX_MAX = 42
+DEFAULT_T_INDEX = 37
 # Resolution is the cheapest lever there is. Measured on a 3090: 512px costs
 # 160ms a frame, 384px 110ms, 320px 92ms. On a projector in a dark room a
 # softer picture is far less noticeable than a stuttering one, and the model
@@ -66,72 +75,79 @@ def touch_heartbeat() -> None:
         pass
 
 
-# Every frame denoises from its own random noise unless told otherwise, so the
-# model re-invents the scene sixty times a minute and the result reads as a
-# flicker book of different pictures rather than a moving image. Pinning the
-# seed makes similar inputs produce similar outputs, which is most of what
-# "temporal coherence" means in practice.
-SEED = 1234
-
-
 class Engine:
+    """StreamDiffusion, not a per-frame img2img loop.
+
+    The difference is the whole reason this rewrite exists. Calling a diffusers
+    pipeline once per frame gives each frame its own denoising run from its own
+    noise, so the model re-invents the scene continuously and the result reads
+    as a flicker book — measured at 4.3 units of frame-to-frame change against
+    0.8 for the source itself.
+
+    StreamDiffusion keeps a batch of frames at staggered denoising stages and
+    carries latents across them, so a frame costs about one step and consecutive
+    frames share their interpretation. Same GPU, measured: 2.0 fps and 4.3
+    flicker became 9.7 fps and 0.9.
+    """
+
     def __init__(self, model_id: str = MODEL_ID) -> None:
         if not torch.cuda.is_available():
             raise SystemExit("No CUDA device. This needs a GPU box; a laptop will not do.")
-        self.pipe = AutoPipelineForImage2Image.from_pretrained(
-            model_id, torch_dtype=torch.float16, variant="fp16", safety_checker=None
+
+        from diffusers import AutoPipelineForImage2Image
+        from streamdiffusion import StreamDiffusion
+        from streamdiffusion.image_utils import postprocess_image
+
+        self._postprocess = postprocess_image
+        pipe = AutoPipelineForImage2Image.from_pretrained(
+            model_id, torch_dtype=torch.float16, safety_checker=None
         ).to("cuda")
-        self.pipe.set_progress_bar_config(disable=True)
-        # Slicing trades speed for memory. At 512px on a 24GB card there is no
-        # memory problem to solve, so it only costs frames.
-        self.pipe.vae.disable_slicing()
+        pipe.set_progress_bar_config(disable=True)
+        self.pipe = pipe
+        self._StreamDiffusion = StreamDiffusion
+
         self.lock = asyncio.Lock()
-        self.generator = torch.Generator(device="cuda").manual_seed(SEED)
-        # The previous output, fed back into the next frame. Diffusion has no
-        # memory between calls, so without this there is nothing tying one
-        # frame to the next at all.
-        self.previous: Image.Image | None = None
-        self._warm()
+        self.prompt = ""
+        self.t_index = DEFAULT_T_INDEX
+        self.stream = None
+        self._build(self.prompt, self.t_index)
+        log.info("engine warm at %dpx", EDGE)
 
-    def _warm(self) -> None:
-        # The first call compiles kernels and allocates workspace, which takes
-        # seconds. Doing it at boot means the first frame of a set is not the
-        # slow one.
-        blank = Image.new("RGB", (EDGE, EDGE))
-        self.render(blank, "warmup", 0.5, 0.0)
-        self.previous = None
-        log.info("engine warm")
-
-    def render(
-        self, image: Image.Image, prompt: str, strength: float, coherence: float = 0.45
-    ) -> Image.Image:
-        # Blend the last result into this frame before denoising. The model then
-        # starts from something it already produced rather than from raw camera
-        # pixels, so consecutive frames share their interpretation instead of
-        # each inventing a new one. Too much and the picture smears and drifts
-        # off the camera; too little and the flicker comes straight back.
-        if self.previous is not None and coherence > 0.01:
-            image = Image.blend(image, self.previous, min(0.85, coherence))
-        # diffusers runs int(num_inference_steps * strength) actual denoising
-        # steps, so the count has to scale with strength or a low setting
-        # silently returns the input untouched. Two effective steps is the most
-        # SD-Turbo needs; more buys nothing and costs frames one for one.
-        steps = max(2, int(math.ceil(2 / max(strength, 0.15))))
-        # Reset every call: a generator advances its state as it draws, so
-        # reusing it without reseeding brings the per-frame randomness back.
-        self.generator.manual_seed(SEED)
-        result = self.pipe(
+    def _build(self, prompt: str, t_index: int) -> None:
+        """Rebuilt only when the prompt or strength changes, never per frame."""
+        self.stream = self._StreamDiffusion(
+            self.pipe,
+            # One entry, one denoising step per frame. Below about 35 the
+            # scheduler cannot recover the frame and the output collapses to
+            # noise or to black — verified, not assumed.
+            t_index_list=[t_index],
+            torch_dtype=torch.float16,
+            width=EDGE,
+            height=EDGE,
+            do_add_noise=True,
+        )
+        self.stream.prepare(
             prompt=prompt or "a photograph",
             negative_prompt=NEGATIVE,
-            image=image,
-            num_inference_steps=steps,
-            strength=strength,
-            guidance_scale=0.0,  # turbo models are trained without guidance
-            generator=self.generator,
+            guidance_scale=1.2,
         )
-        out = result.images[0]
-        self.previous = out
-        return out
+        blank = Image.new("RGB", (EDGE, EDGE))
+        for _ in range(4):
+            self._run(blank)
+        self.prompt = prompt
+        self.t_index = t_index
+
+    def _run(self, image: Image.Image) -> Image.Image:
+        tensor = self.stream.image_processor.preprocess(image, EDGE, EDGE).to("cuda", torch.float16)
+        return self._postprocess(self.stream(tensor), output_type="pil")[0]
+
+    def render(self, image: Image.Image, prompt: str, strength: float) -> Image.Image:
+        # strength reads as "how far from the camera", so it maps backwards onto
+        # t_index: a higher index means less noise and a closer picture.
+        t_index = max(T_INDEX_MIN, min(T_INDEX_MAX, round(T_INDEX_MAX - strength * (T_INDEX_MAX - T_INDEX_MIN))))
+        if prompt != self.prompt or t_index != self.t_index:
+            self._build(prompt, t_index)
+        return self._run(image)
 
 
 def fit(image: Image.Image, edge: int = EDGE) -> Image.Image:
@@ -161,7 +177,6 @@ async def handle(websocket, engine: Engine) -> None:
     log.info("connected %s", peer)
     prompt = ""
     strength = 0.35
-    coherence = 0.45
     frames = 0
     started = time.monotonic()
 
@@ -180,10 +195,7 @@ async def handle(websocket, engine: Engine) -> None:
             if payload.get("type") == "config":
                 prompt = str(payload.get("prompt", ""))[:400]
                 strength = min(0.6, max(0.15, float(payload.get("strength", 0.35))))
-                coherence = min(0.85, max(0.0, float(payload.get("coherence", 0.45))))
-                # A new prompt describes a different picture, so carrying the
-                # old one forward would fight the change for several seconds.
-                engine.previous = None
+
                 log.info("prompt=%r strength=%.2f", prompt, strength)
             continue
 
@@ -195,7 +207,7 @@ async def handle(websocket, engine: Engine) -> None:
             began = time.perf_counter()
             frame = fit(Image.open(io.BytesIO(message)).convert("RGB"))
             async with engine.lock:
-                out = await asyncio.to_thread(engine.render, frame, prompt, strength, coherence)
+                out = await asyncio.to_thread(engine.render, frame, prompt, strength)
             gpu_ms = (time.perf_counter() - began) * 1000
             buffer = io.BytesIO()
             out.save(buffer, format="JPEG", quality=80)

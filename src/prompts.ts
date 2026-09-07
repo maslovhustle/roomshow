@@ -22,7 +22,32 @@ export const STYLE_PROMPTS: readonly StylePrompt[] = [
   {
     id: 'yellow-cartoon',
     name: 'Yellow Cartoon',
-    prompt: 'flat 2D cel animation, thick black outlines, bright yellow skin, simple shapes, saturated primary colours, american tv cartoon',
+    prompt: 'flat 2D cel animation, thick black outlines, bright yellow skin, four fingers, simple shapes, saturated primary colours, american prime-time cartoon',
+  },
+  {
+    id: 'claymation',
+    name: 'Claymation',
+    prompt: 'stop-motion claymation, plasticine figures, visible fingerprints in the clay, soft studio lighting, shallow depth of field',
+  },
+  {
+    id: 'vintage-poster',
+    name: 'Vintage Poster',
+    prompt: 'vintage screen-printed poster, limited ink palette, halftone texture, heavy black linework, aged paper, mid-century travel advertisement',
+  },
+  {
+    id: 'embroidery',
+    name: 'Embroidery',
+    prompt: 'embroidered patch, satin stitch thread, raised needlework texture, felt backing, visible stitching along every edge',
+  },
+  {
+    id: 'render3d',
+    name: '3D Render',
+    prompt: 'polished 3D render, subsurface scattering, soft global illumination, octane render, stylised animated film character',
+  },
+  {
+    id: 'pixel',
+    name: 'Pixel Art',
+    prompt: 'pixel art, limited 16 colour palette, chunky pixels, dithering, retro game sprite',
   },
   {
     id: 'adult-cartoon',
@@ -35,14 +60,9 @@ export const STYLE_PROMPTS: readonly StylePrompt[] = [
     prompt: 'anime key visual, cel shaded, crisp linework, large expressive eyes, vivid colour grading, studio animation still',
   },
   {
-    id: 'claymation',
-    name: 'Claymation',
-    prompt: 'stop-motion claymation, plasticine figures, visible fingerprints in the clay, soft studio lighting, shallow depth of field',
-  },
-  {
-    id: 'render3d',
-    name: '3D Render',
-    prompt: 'polished 3D render, subsurface scattering, soft global illumination, octane render, pixar style character',
+    id: 'comic',
+    name: 'Comic Book',
+    prompt: 'inked comic book panel, heavy black shadows, ben-day dot shading, bold primary colours, retro print',
   },
   {
     id: 'oil',
@@ -50,19 +70,24 @@ export const STYLE_PROMPTS: readonly StylePrompt[] = [
     prompt: 'thick oil painting, visible impasto brush strokes, canvas texture, rembrandt lighting, gallery photograph',
   },
   {
-    id: 'comic',
-    name: 'Comic Book',
-    prompt: 'inked comic book panel, heavy black shadows, ben-day dot shading, bold primary colours, retro print',
-  },
-  {
     id: 'watercolour',
     name: 'Watercolour',
     prompt: 'loose watercolour painting, bleeding pigment, wet paper texture, soft washes, white paper showing through',
   },
   {
-    id: 'pixel',
-    name: 'Pixel Art',
-    prompt: 'pixel art, limited 16 colour palette, chunky pixels, dithering, retro game sprite',
+    id: 'papercut',
+    name: 'Paper Cut',
+    prompt: 'layered paper cut-out diorama, coloured card stock, soft drop shadows between layers, handmade craft',
+  },
+  {
+    id: 'stainedglass',
+    name: 'Stained Glass',
+    prompt: 'stained glass window, thick black lead came between coloured panes, glowing backlight, cathedral art',
+  },
+  {
+    id: 'neon-noir',
+    name: 'Neon Noir',
+    prompt: 'neon noir, wet reflective street, magenta and cyan rim light, deep shadows, cinematic anamorphic',
   },
   {
     id: 'lowpoly',
@@ -70,13 +95,8 @@ export const STYLE_PROMPTS: readonly StylePrompt[] = [
     prompt: 'low poly 3D, flat shaded triangles, faceted geometry, pastel gradient palette, isometric render',
   },
   {
-    id: 'cyberpunk',
-    name: 'Cyberpunk',
-    prompt: 'cyberpunk night, neon rim lighting, wet reflective surfaces, holographic signage, cinematic teal and magenta',
-  },
-  {
     id: 'woodcut',
-    name: 'Woodcut',
+    name: 'Woodblock',
     prompt: 'japanese woodblock print, flat colour fields, visible carving marks, muted natural pigments, ukiyo-e composition',
   },
 ];

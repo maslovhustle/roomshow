@@ -94,18 +94,36 @@ describe('the AI engine', () => {
     expect(() => engine.render(PARAM_DEFAULTS, 0)).not.toThrow();
   });
 
-  // The whole point of the in-flight guard: latency is what the room sees, and
-  // an unbounded send queue trades a visible lag for throughput nobody wants.
-  it('keeps exactly one frame in flight', async () => {
+  // The bound is the invariant, not the number. Frames overlap so transport and
+  // rendering do not add up — measured at 2 fps serialised against 6 pipelined
+  // — but an unbounded queue would drift further behind the room every second.
+  it('overlaps frames up to a fixed ceiling and no further', async () => {
     const { engine, socket } = start();
 
-    engine.render(PARAM_DEFAULTS, 0);
-    await settle();
-    engine.render(PARAM_DEFAULTS, 0.016);
-    engine.render(PARAM_DEFAULTS, 0.033);
+    for (let frame = 0; frame < 12; frame++) {
+      engine.render(PARAM_DEFAULTS, frame * 0.016);
+      await settle();
+    }
+
+    const sent = binary(socket).length;
+    expect(sent).toBeGreaterThan(1);
+    expect(sent).toBeLessThanOrEqual(3);
+  });
+
+  it('frees a slot for each reply, so the pipeline keeps moving', async () => {
+    const { engine, socket } = start();
+
+    for (let frame = 0; frame < 6; frame++) {
+      engine.render(PARAM_DEFAULTS, frame * 0.016);
+      await settle();
+    }
+    const before = binary(socket).length;
+
+    socket.onmessage?.({ data: new Blob([new Uint8Array([9])]) });
+    engine.render(PARAM_DEFAULTS, 1);
     await settle();
 
-    expect(binary(socket)).toHaveLength(1);
+    expect(binary(socket).length).toBe(before + 1);
   });
 
   it('sends again once a frame comes back', async () => {

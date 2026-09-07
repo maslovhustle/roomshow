@@ -6,9 +6,7 @@
 // most recently and returns immediately, so a stalled GPU or a dropped venue
 // wifi freezes the picture instead of freezing the machine.
 
-import type { Params, Stylizer } from '../types';
-
-export type AiStatus = 'idle' | 'connecting' | 'live' | 'offline';
+import type { AiStatus, Params, Stylizer } from '../types';
 
 /** Encoded upload size. The model works at 512 anyway, so sending more is waste. */
 const SEND_EDGE = 512;
@@ -37,7 +35,7 @@ export class DiffusionStylizer implements Stylizer {
   private prompt = '';
   private strength = 0.6;
 
-  status: AiStatus = 'idle';
+  status: AiStatus = 'off';
   onStatus?: (status: AiStatus, detail?: string) => void;
 
   constructor(private canvas: HTMLCanvasElement, private endpoint: string) {}

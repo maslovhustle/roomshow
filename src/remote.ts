@@ -44,8 +44,11 @@ let sync: Sync | null = null;
 let publisher: PhonePublisher | null = null;
 let state: StageState = {
   engine: 'shader',
+  aiStatus: 'off',
   prompt: '',
-  aiStrength: 0.6,
+  // Measured: below about 0.7 the model barely departs from the frame and the
+  // prompt looks broken. 0.8 is where a described style actually appears.
+  aiStrength: 0.8,
   preset: 'comic',
   intensity: 0.65,
   source: 'shapes',
@@ -162,7 +165,7 @@ function buildStyles(): void {
       // Fill the box as well as sending it, so the next tap edits a real
       // sentence rather than starting from nothing.
       els.prompt.value = style.prompt;
-      patch({ prompt: style.prompt, engine: 'ai' });
+      patch(state.aiStatus === 'off' ? { prompt: style.prompt } : { prompt: style.prompt, engine: 'ai' });
     };
     return button;
   }));
@@ -176,7 +179,9 @@ function wireControls(): void {
     };
   }
 
-  const send = (): void => patch({ prompt: els.prompt.value.trim(), engine: 'ai' });
+  const send = (): void => patch(state.aiStatus === 'off'
+    ? { prompt: els.prompt.value.trim() }
+    : { prompt: els.prompt.value.trim(), engine: 'ai' });
   els.sendPrompt.onclick = send;
   els.prompt.onkeydown = (event) => {
     if (event.key === 'Enter') send();
@@ -250,9 +255,28 @@ function patch(next: Partial<StageState>): void {
   sync?.send(msg.patch(next));
 }
 
+const AI_EXPLANATION: Record<string, string> = {
+  off: 'The stage has no AI endpoint set. Add one on its home page under "AI engine", then reload the stage.',
+  connecting: 'Reaching the AI engine…',
+  offline: 'The AI engine is unreachable. Check that the GPU box is running.',
+};
+
 function render(): void {
+  // Only the stage knows whether an endpoint exists, so the button has to
+  // follow what it reports. Offering AI unconditionally meant a tap that lit up
+  // and then snapped back two seconds later when the stage rebroadcast its
+  // state — which reads as a broken button, not as a missing endpoint.
+  const aiReady = state.aiStatus === 'live' || state.aiStatus === 'connecting';
   for (const button of els.engines.querySelectorAll('button')) {
+    const isAi = button.dataset.engine === 'ai';
     button.classList.toggle('active', button.dataset.engine === state.engine);
+    button.disabled = isAi && !aiReady;
+    if (isAi) button.textContent = state.aiStatus === 'live' ? 'AI ✦' : `AI ✦ (${state.aiStatus})`;
+  }
+  if (state.aiStatus !== 'live' && AI_EXPLANATION[state.aiStatus]) {
+    showNotice(AI_EXPLANATION[state.aiStatus]!);
+  } else if (els.notice.textContent && Object.values(AI_EXPLANATION).includes(els.notice.textContent)) {
+    els.notice.hidden = true;
   }
   els.aiPanel.hidden = state.engine !== 'ai';
   if (document.activeElement !== els.prompt) els.prompt.value = state.prompt;

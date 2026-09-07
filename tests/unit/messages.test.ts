@@ -4,8 +4,11 @@ import type { StageState } from '../../src/types';
 
 const state: StageState = {
   engine: 'shader',
+  aiStatus: 'off',
   prompt: '',
-  aiStrength: 0.6,
+  // Measured: below about 0.7 the model barely departs from the frame and the
+  // prompt looks broken. 0.8 is where a described style actually appears.
+  aiStrength: 0.8,
   preset: 'comic',
   intensity: 0.65,
   source: 'shapes',

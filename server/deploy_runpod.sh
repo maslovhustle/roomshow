@@ -17,11 +17,11 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ssh_pod() { ssh -o StrictHostKeyChecking=accept-new -i "$KEY" $RUNPOD_SSH "$@"; }
 
 echo "→ copying server"
-# shellcheck disable=SC2086
-scp -o StrictHostKeyChecking=accept-new -i "$KEY" \
-  $(echo "$RUNPOD_SSH" | sed -E 's/(.*) -p ([0-9]+)/-P \2 \1/' | awk '{print $1, $2}' | { read -r a b; echo "$a $b"; }) \
-  "$HERE/stream_server.py" :/workspace/stream_server.py 2>/dev/null \
-  || ssh_pod 'cat > /workspace/stream_server.py' < "$HERE/stream_server.py"
+# Piped through ssh rather than scp: the port lives inside RUNPOD_SSH as "-p N",
+# which scp spells "-P N", and splitting the string to translate it was more
+# fragile than the copy itself.
+ssh_pod 'mkdir -p /workspace && cat > /workspace/stream_server.py' < "$HERE/stream_server.py"
+ssh_pod 'cat > /workspace/autostop.py' < "$HERE/autostop.py"
 
 echo "→ installing dependencies"
 ssh_pod 'pip install --quiet --no-input diffusers==0.31.0 transformers==4.44.2 accelerate==0.34.2 "websockets>=13" 2>&1 | tail -3'

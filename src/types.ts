@@ -117,8 +117,17 @@ export interface Look<Id extends string = string> {
 /** Which renderer is on screen. Both stay loaded so switching is instant. */
 export type Engine = 'shader' | 'ai';
 
+/**
+ * `off` means no endpoint is configured on the stage at all — a different
+ * situation from one that is configured and unreachable, and the remote has to
+ * say so rather than offering a button that silently snaps back.
+ */
+export type AiStatus = 'off' | 'connecting' | 'live' | 'offline';
+
 export interface StageState {
   engine: Engine;
+  /** Broadcast by the stage: only it knows whether an endpoint is configured. */
+  aiStatus: AiStatus;
   /** Free text handed to the diffusion model. Ignored by the shader engine. */
   prompt: string;
   /** How far the model is allowed to depart from the camera frame. */

@@ -24,6 +24,7 @@ import asyncio
 import io
 import json
 import logging
+import math
 import os
 import time
 
@@ -38,7 +39,10 @@ log = logging.getLogger("roomshow")
 # only reason any of this runs at interactive rates. A standard SD1.5 checkpoint
 # needs 20+ steps and lands around one frame per second.
 MODEL_ID = "stabilityai/sd-turbo"
-EDGE = 512
+# Resolution is the cheapest lever there is. Measured on a 3090: 512px costs
+# 160ms a frame, 384px 110ms, 320px 92ms. On a projector in a dark room the
+# drop in detail is far less noticeable than the drop in frame rate.
+EDGE = int(os.environ.get("ROOMSHOW_EDGE", "384"))
 NEGATIVE = "blurry, low quality, distorted, deformed, watermark, text, extra limbs"
 
 # The idle watchdog reads this file's mtime. Touched from the frame loop rather
@@ -69,8 +73,9 @@ class Engine:
             model_id, torch_dtype=torch.float16, variant="fp16", safety_checker=None
         ).to("cuda")
         self.pipe.set_progress_bar_config(disable=True)
-        # The VAE decode dominates the frame budget at this resolution.
-        self.pipe.vae.enable_slicing()
+        # Slicing trades speed for memory. At 512px on a 24GB card there is no
+        # memory problem to solve, so it only costs frames.
+        self.pipe.vae.disable_slicing()
         self.lock = asyncio.Lock()
         self._warm()
 
@@ -83,10 +88,11 @@ class Engine:
         log.info("engine warm")
 
     def render(self, image: Image.Image, prompt: str, strength: float) -> Image.Image:
-        # strength drives how far the model may depart from the frame, and it
-        # also sets the step count: num_inference_steps * strength must be >= 1
-        # or the scheduler returns the input untouched.
-        steps = max(2, int(round(2 / max(strength, 0.15))))
+        # diffusers runs int(num_inference_steps * strength) actual denoising
+        # steps, so the count has to scale with strength or a low setting
+        # silently returns the input untouched. Two effective steps is the most
+        # SD-Turbo needs; more buys nothing and costs frames one for one.
+        steps = max(2, int(math.ceil(2 / max(strength, 0.15))))
         result = self.pipe(
             prompt=prompt or "a photograph",
             negative_prompt=NEGATIVE,
@@ -135,6 +141,12 @@ async def handle(websocket, engine: Engine) -> None:
                 payload = json.loads(message)
             except json.JSONDecodeError:
                 continue
+            if payload.get("type") == "ping":
+                # Answers without touching the model, so a round trip measures
+                # transport alone. Without this, a slow link and a slow model
+                # are indistinguishable from the client side.
+                await websocket.send(b"\x00")
+                continue
             if payload.get("type") == "config":
                 prompt = str(payload.get("prompt", ""))[:400]
                 strength = min(0.95, max(0.15, float(payload.get("strength", 0.6))))
@@ -148,16 +160,23 @@ async def handle(websocket, engine: Engine) -> None:
             continue
         busy = True
         try:
+            began = time.perf_counter()
             frame = fit(Image.open(io.BytesIO(message)).convert("RGB"))
             async with engine.lock:
                 out = await asyncio.to_thread(engine.render, frame, prompt, strength)
+            gpu_ms = (time.perf_counter() - began) * 1000
             buffer = io.BytesIO()
             out.save(buffer, format="JPEG", quality=80)
             await websocket.send(buffer.getvalue())
             touch_heartbeat()
             frames += 1
-            if frames % 60 == 0:
-                log.info("%.1f fps", frames / (time.monotonic() - started))
+            # Logging GPU time separately from the wall-clock rate is what
+            # makes a slow link distinguishable from a slow model.
+            if frames % 30 == 0:
+                log.info(
+                    "%d frames, %.1f fps overall, last render %.0f ms at %dpx",
+                    frames, frames / (time.monotonic() - started), gpu_ms, EDGE,
+                )
         except Exception:
             log.exception("frame failed")
         finally:

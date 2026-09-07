@@ -54,8 +54,11 @@ const wanted = new URLSearchParams(location.search).get('look');
 
 const state: StageState = {
   engine: 'shader',
+  aiStatus: 'off',
   prompt: '',
-  aiStrength: 0.6,
+  // Measured: below about 0.7 the model barely departs from the frame and the
+  // prompt looks broken. 0.8 is where a described style actually appears.
+  aiStrength: 0.8,
   preset: wanted && PRESET_IDS.has(wanted) ? wanted : 'comic',
   intensity: 0.65,
   source: 'shapes',
@@ -64,7 +67,7 @@ const state: StageState = {
   recording: false,
 };
 
-let sync: Sync;
+let sync: Sync | undefined;
 let receiver: StageReceiver;
 
 async function boot(): Promise<void> {
@@ -85,11 +88,16 @@ async function boot(): Promise<void> {
 
   stylizer.init();
   if (diffusion) {
+    state.aiStatus = 'connecting';
     diffusion.init();
     diffusion.onStatus = (status, detail) => {
       els.ai.hidden = false;
       els.ai.textContent = `ai: ${status}`;
       els.ai.dataset.state = status;
+      // The phone is the only screen the operator is looking at, so the status
+      // has to travel to it rather than sitting in the stage HUD.
+      state.aiStatus = status;
+      sync?.send(msg.state(state));
       if (status === 'offline' && detail) fail(detail);
       // Falling back rather than showing a frozen frame: a projector with a
       // stale picture is worse than one running the shader.
@@ -109,7 +117,7 @@ async function boot(): Promise<void> {
   receiver.onStream = (stream) => {
     state.source = 'phone';
     void source.usePhone(stream);
-    sync.send(msg.state(state));
+    sync?.send(msg.state(state));
   };
   receiver.onFailed = (reason) => fail(reason);
 
@@ -127,7 +135,7 @@ async function boot(): Promise<void> {
   window.addEventListener('resize', resize);
   window.addEventListener('keydown', onKey);
   // A quiet stage still needs to prove it is alive to a phone that just woke up.
-  setInterval(() => sync.send(msg.state(state)), 2000);
+  setInterval(() => sync?.send(msg.state(state)), 2000);
 
   requestAnimationFrame(loop);
 }
@@ -135,7 +143,7 @@ async function boot(): Promise<void> {
 function onMessage(message: SyncMessage): void {
   switch (message.t) {
     case 'hello':
-      sync.send(msg.state(state));
+      sync?.send(msg.state(state));
       break;
     case 'patch':
       void applyPatch(message.patch);
@@ -195,7 +203,7 @@ async function applyPatch(patch: Partial<StageState>): Promise<void> {
   if (patch.intensity !== undefined) state.intensity = patch.intensity;
   if (patch.mirror !== undefined) state.mirror = patch.mirror;
 
-  sync.send(msg.state(state));
+  sync?.send(msg.state(state));
 }
 
 async function runAction(action: StageAction): Promise<void> {
@@ -212,7 +220,7 @@ async function runAction(action: StageAction): Promise<void> {
       }
     }
     els.rec.hidden = !state.recording;
-    sync.send(msg.state(state));
+    sync?.send(msg.state(state));
   }
   if (action === 'snapshot') snapshot(canvas);
   if (action === 'fullscreen') toggleFullscreen();

@@ -72,6 +72,9 @@ jobs:
       - run: npm ci
       # Deploy only after the browser tests have passed, which is the whole
       # point of gating it here rather than letting Vercel build on push.
+      # Skipped rather than failed when the secrets are absent: an
+      # unconfigured deploy is a setup step nobody has done yet, not a broken
+      # build, and a permanently red main teaches everyone to ignore the badge.
       - name: Deploy
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -79,8 +82,8 @@ jobs:
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
           if [ -z "$VERCEL_TOKEN" ]; then
-            echo "::error::VERCEL_TOKEN is not set. Add the three Vercel secrets, or turn this job off."
-            exit 1
+            echo "::notice::No VERCEL_TOKEN secret, skipping deploy. Tests still gate this job."
+            exit 0
           fi
           npx vercel@latest pull --yes --environment=production --token="$VERCEL_TOKEN"
           npx vercel@latest build --prod --token="$VERCEL_TOKEN"

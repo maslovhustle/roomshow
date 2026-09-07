@@ -8,8 +8,11 @@ export default defineConfig({
   fullyParallel: true,
   // Every stage page drives a full WebGL loop through SwiftShader, so these are
   // far heavier than typical DOM tests. Left unbounded, parallel workers starve
-  // each other and pages die mid-assertion.
-  workers: 2,
+  // each other and pages die mid-assertion. CI runners have two cores and no
+  // GPU at all, so they get one.
+  workers: process.env.CI ? 1 : 2,
+  timeout: process.env.CI ? 90_000 : 30_000,
+  expect: { timeout: process.env.CI ? 30_000 : 10_000 },
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 1,
   reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : [['list']],
@@ -22,7 +25,21 @@ export default defineConfig({
     deviceScaleFactor: 1,
     // WebGL needs a real GPU path; headless Chromium falls back to SwiftShader,
     // which is slow but correct, and the stage is unverifiable without it.
-    launchOptions: { args: ['--use-gl=angle', '--use-angle=swiftshader'] },
+    //
+    // --enable-unsafe-swiftshader is not optional on a CI runner. Chrome stopped
+    // silently falling back to software WebGL, so without it getContext('webgl')
+    // returns null on a machine with no GPU and every stage test fails on a
+    // black canvas that looks like a rendering bug.
+    launchOptions: {
+      args: [
+        '--use-gl=angle',
+        '--use-angle=swiftshader',
+        '--enable-unsafe-swiftshader',
+        // Containers give /dev/shm 64MB, which Chrome exhausts and then crashes
+        // the tab mid-test.
+        '--disable-dev-shm-usage',
+      ],
+    },
   },
   projects: [{
     name: 'chromium',

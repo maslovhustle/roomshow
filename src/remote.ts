@@ -46,9 +46,15 @@ let state: StageState = {
   engine: 'shader',
   aiStatus: 'off',
   prompt: '',
-  // Measured: below about 0.7 the model barely departs from the frame and the
-  // prompt looks broken. 0.8 is where a described style actually appears.
-  aiStrength: 0.8,
+  // Measured against moving footage, not a still. Strength is how far the model
+  // may depart from the frame, and past about 0.5 it stops tracking the camera
+  // at all: it denoises away the input and generates from the prompt, so every
+  // frame invents a new scene and the result reads as a flicker book. Flicker
+  // rose 1.6 -> 2.0 -> 3.0 -> 4.3 across 0.25 / 0.35 / 0.5 / 0.8 while distance
+  // from the source went 5 -> 8 -> 13 -> 29.
+  //
+  // A setting that flatters a single photograph is the wrong setting for video.
+  aiStrength: 0.35,
   preset: 'comic',
   intensity: 0.65,
   source: 'shapes',

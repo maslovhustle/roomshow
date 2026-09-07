@@ -33,9 +33,11 @@
     <h2>How far it goes</h2>
     <div class="fader-label">
       <span>keeps the room · redraws it</span>
-      <span id="strengthValue">60%</span>
+      <span id="strengthValue">35%</span>
     </div>
-    <input id="strength" type="range" min="15" max="95" value="60">
+    <!-- Capped at 60: past roughly 0.5 the model stops tracking the camera and
+         each frame becomes an unrelated picture. -->
+    <input id="strength" type="range" min="15" max="60" value="35">
   </section>
 
   <h2>Look</h2>

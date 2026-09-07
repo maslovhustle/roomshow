@@ -26,13 +26,16 @@ scp -o StrictHostKeyChecking=accept-new -i "$KEY" \
 echo "→ installing dependencies"
 ssh_pod 'pip install --quiet --no-input diffusers==0.31.0 transformers==4.44.2 accelerate==0.34.2 "websockets>=13" 2>&1 | tail -3'
 
-echo "→ freeing port 3000"
-# RunPod only proxies ports declared when the pod was created, and the ComfyUI
-# templates expose 3000. Reusing it beats trying to open another one.
-ssh_pod 'pkill -f "main.py --listen --port 3000" || true; sleep 2'
+# RunPod only proxies ports declared when the pod was created. This template
+# exposes 8888, 3000 and 22, so the server takes 8888 and leaves ComfyUI alone
+# on 3000 — worth checking with the API before assuming, since a port the proxy
+# does not know about simply answers nothing and looks like a dead server.
+PORT="${ROOMSHOW_PORT:-8888}"
+echo "→ freeing port $PORT"
+ssh_pod "fuser -k ${PORT}/tcp 2>/dev/null || true; sleep 2"
 
-echo "→ starting"
-ssh_pod "ROOMSHOW_TOKEN='$ROOMSHOW_TOKEN' nohup python3 /workspace/stream_server.py --host 0.0.0.0 --port 3000 > /workspace/roomshow.log 2>&1 & sleep 1; echo started"
+echo "→ starting on $PORT"
+ssh_pod "ROOMSHOW_TOKEN='$ROOMSHOW_TOKEN' nohup python3 /workspace/stream_server.py --host 0.0.0.0 --port $PORT > /workspace/roomshow.log 2>&1 & sleep 1; echo started"
 
 echo "→ waiting for the model to warm (first load pulls ~2.5GB)"
 for _ in $(seq 1 60); do

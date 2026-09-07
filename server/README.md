@@ -34,13 +34,21 @@ ROOMSHOW_TOKEN=pick-something-secret \
 Point the app's home page at:
 
 ```
-wss://<pod-id>-3000.proxy.runpod.net/?token=pick-something-secret
+wss://<pod-id>-8888.proxy.runpod.net/?token=pick-something-secret
 ```
 
-Port 3000 is deliberate. RunPod only proxies ports declared when the pod was
-created, and its ComfyUI templates expose 3000 — so the server takes over that
-port rather than opening one the proxy would ignore. The proxy terminates TLS,
-which also gives the `wss://` a page served over HTTPS requires.
+Port 8888 is deliberate. RunPod only proxies ports declared when the pod was
+created, and a port it does not know about answers nothing at all — which looks
+exactly like a dead server. Check first:
+
+```bash
+curl -s -H "Authorization: Bearer $RUNPOD_API_KEY" https://rest.runpod.io/v1/pods \
+  | python3 -c 'import json,sys; [print(p["id"], p["ports"]) for p in json.load(sys.stdin)]'
+```
+
+The ComfyUI template exposes `8888/http`, `3000/http` and `22/tcp`, so the
+server takes the Jupyter slot and leaves ComfyUI alone. The proxy terminates
+TLS, which also supplies the `wss://` that a page served over HTTPS requires.
 
 The token is not optional. The proxy URL is public, and what travels over it is
 somebody's camera.

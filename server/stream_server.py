@@ -169,9 +169,10 @@ async def handle(websocket, engine: Engine) -> None:
 async def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="0.0.0.0")
-    # 3000 by default: RunPod only proxies ports declared when the pod was
-    # created, and that is the one its ComfyUI templates already expose.
-    parser.add_argument("--port", type=int, default=3000)
+    # 8888 by default: RunPod only proxies ports declared when the pod was
+    # created. Its ComfyUI templates expose 8888, 3000 and 22, so this takes
+    # the Jupyter slot and leaves ComfyUI running on 3000.
+    parser.add_argument("--port", type=int, default=8888)
     parser.add_argument("--model", default=MODEL_ID)
     args = parser.parse_args()
 

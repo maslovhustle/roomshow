@@ -16,6 +16,28 @@
 
   <p id="notice" hidden></p>
 
+  <h2>Engine</h2>
+  <div id="engines" class="row-2">
+    <button data-engine="shader">Filters</button>
+    <button data-engine="ai">AI ✦</button>
+  </div>
+
+  <section id="aiPanel" hidden>
+    <h2>Describe it</h2>
+    <div class="prompt-row">
+      <input id="prompt" type="text" placeholder="show us as a cartoon…" autocomplete="off">
+      <button id="sendPrompt">Go</button>
+    </div>
+    <div id="styles" class="styles"></div>
+
+    <h2>How far it goes</h2>
+    <div class="fader-label">
+      <span>keeps the room · redraws it</span>
+      <span id="strengthValue">60%</span>
+    </div>
+    <input id="strength" type="range" min="15" max="95" value="60">
+  </section>
+
   <h2>Look</h2>
   <div id="banks" class="banks"></div>
   <div id="presets"></div>

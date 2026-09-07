@@ -11,6 +11,8 @@ import { hasSupabase, makeSessionCode, normaliseCode, pairingHash } from './conf
 import { BANKS, PRESETS, bankOf, banksLooks, resolveParams } from './presets';
 import { createSync, msg } from './sync';
 import { WebGLStylizer } from './stylizer/webgl';
+import { DiffusionStylizer } from './stylizer/diffusion';
+import { loadConfig } from './config';
 import { SourceManager } from './source';
 import { CanvasRecorder, snapshot } from './recorder';
 import { AudioReactor, SILENCE } from './audio';
@@ -21,6 +23,7 @@ const MAX_WIDTH = 1920;
 const PRESET_IDS = new Set<string>(PRESETS.map((preset) => preset.id));
 
 const canvas = must<HTMLCanvasElement>('stage');
+const aiCanvas = must<HTMLCanvasElement>('stageAi');
 const hud = must<HTMLDivElement>('hud');
 const els = {
   code: must<HTMLDivElement>('code'),
@@ -31,6 +34,7 @@ const els = {
   fps: must<HTMLSpanElement>('fps'),
   rec: must<HTMLSpanElement>('recDot'),
   error: must<HTMLDivElement>('error'),
+  ai: must<HTMLSpanElement>('aiStatus'),
 };
 
 const code = normaliseCode(new URLSearchParams(location.search).get('code')) || makeSessionCode();
@@ -39,11 +43,19 @@ const source = new SourceManager();
 const audio = new AudioReactor();
 const recorder = new CanvasRecorder(canvas);
 
+// The AI engine only exists when an endpoint is configured. Everything below
+// treats it as optional, so an unconfigured install behaves exactly as before.
+const diffusionUrl = loadConfig().diffusionUrl;
+const diffusion = diffusionUrl ? new DiffusionStylizer(aiCanvas, diffusionUrl) : null;
+
 // A look can be named in the URL, which is what the gallery links to. An
 // unknown id falls through to the default rather than rendering nothing.
 const wanted = new URLSearchParams(location.search).get('look');
 
 const state: StageState = {
+  engine: 'shader',
+  prompt: '',
+  aiStrength: 0.6,
   preset: wanted && PRESET_IDS.has(wanted) ? wanted : 'comic',
   intensity: 0.65,
   source: 'shapes',
@@ -72,6 +84,19 @@ async function boot(): Promise<void> {
   };
 
   stylizer.init();
+  if (diffusion) {
+    diffusion.init();
+    diffusion.onStatus = (status, detail) => {
+      els.ai.hidden = false;
+      els.ai.textContent = `ai: ${status}`;
+      els.ai.dataset.state = status;
+      if (status === 'offline' && detail) fail(detail);
+      // Falling back rather than showing a frozen frame: a projector with a
+      // stale picture is worse than one running the shader.
+      if (status !== 'live' && state.engine === 'ai') showEngine('shader');
+      else showEngine(state.engine);
+    };
+  }
 
   await source.use('shapes');
   stylizer.setSource(source.element, source.size.w, source.size.h);
@@ -155,6 +180,17 @@ async function applyPatch(patch: Partial<StageState>): Promise<void> {
       state.audio = false;
     }
   }
+  if (patch.engine !== undefined && patch.engine !== state.engine) {
+    if (patch.engine === 'ai' && !diffusion) {
+      fail('No AI endpoint configured — set one on the home page.');
+    } else {
+      state.engine = patch.engine;
+      showEngine(patch.engine);
+    }
+  }
+  if (patch.prompt !== undefined) state.prompt = patch.prompt;
+  if (patch.aiStrength !== undefined) state.aiStrength = patch.aiStrength;
+  diffusion?.setPrompt(state.prompt, state.aiStrength);
   if (patch.preset !== undefined) state.preset = patch.preset;
   if (patch.intensity !== undefined) state.intensity = patch.intensity;
   if (patch.mirror !== undefined) state.mirror = patch.mirror;
@@ -201,6 +237,7 @@ function onKey(event: KeyboardEvent): void {
     c: () => void applyPatch({ source: state.source === 'camera' ? 'shapes' : 'camera' }),
     m: () => void applyPatch({ audio: !state.audio }),
     h: () => hud.classList.toggle('hidden'),
+    a: () => void applyPatch({ engine: state.engine === 'ai' ? 'shader' : 'ai' }),
     ArrowUp: () => void applyPatch({ intensity: Math.min(1, state.intensity + 0.05) }),
     ArrowDown: () => void applyPatch({ intensity: Math.max(0, state.intensity - 0.05) }),
   };
@@ -223,11 +260,23 @@ function toggleFullscreen(): void {
   else void document.documentElement.requestFullscreen().catch(() => {});
 }
 
+/**
+ * Only the active engine's canvas is on screen. Both keep rendering: the shader
+ * is what the room falls back to the moment the socket drops, and restarting it
+ * cold at that point would show a black frame first.
+ */
+function showEngine(engine: 'shader' | 'ai'): void {
+  const ai = engine === 'ai' && Boolean(diffusion);
+  aiCanvas.hidden = !ai;
+  canvas.hidden = ai;
+}
+
 function resize(): void {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const width = Math.min(MAX_WIDTH, Math.floor(window.innerWidth * dpr));
   const height = Math.floor(width * (window.innerHeight / window.innerWidth));
   stylizer.resize(width, height);
+  diffusion?.resize(width, height);
 }
 
 let frames = 0;
@@ -244,11 +293,20 @@ function loop(now: number): void {
   params.mirror = state.mirror;
 
   stylizer.render(params, now / 1000);
+  if (diffusion) {
+    diffusion.setSource(source.element, size.w, size.h);
+    diffusion.render(params, now / 1000);
+    // Hold the shader on screen until a real frame has arrived, or switching
+    // engines flashes black for as long as the first round trip takes.
+    if (state.engine === 'ai' && diffusion.live && diffusion.painting) showEngine('ai');
+  }
 
   frames++;
   if (now - fpsMark > 1000) {
     els.fps.textContent = `${frames} fps`;
-    els.preset.textContent = `${bankOf(state.preset)} · ${state.preset}`;
+    els.preset.textContent = state.engine === 'ai' && diffusion?.painting
+      ? 'ai'
+      : `${bankOf(state.preset)} · ${state.preset}`;
     frames = 0;
     fpsMark = now;
   }

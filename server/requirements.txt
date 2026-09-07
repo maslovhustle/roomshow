@@ -1,0 +1,6 @@
+torch>=2.2
+diffusers>=0.31
+transformers>=4.44
+accelerate>=0.34
+pillow>=10.3
+websockets>=13

@@ -4,8 +4,10 @@ Point a camera at the room, restyle it live, project it back. Control it from a 
 
 Live at **https://roomshow.vercel.app**
 
-TypeScript and Vite, no backend, no GPU bill. Three static pages plus a free
-Supabase Realtime channel for the phone-to-laptop link.
+TypeScript and Vite. Four static pages plus a free Supabase Realtime channel for
+the phone-to-laptop link. Two rendering engines: a WebGL shader that costs
+nothing and runs offline, and an optional prompt-driven diffusion engine on a
+GPU you rent.
 
 ## Run it
 
@@ -84,6 +86,7 @@ dead phone away from a black screen.
 | `M` | mic reactivity |
 | `R` / `S` | record / snapshot |
 | `F` / `H` | fullscreen / hide HUD |
+| `A` | shader / AI engine |
 
 ## Phone camera
 
@@ -285,6 +288,9 @@ The deploy job needs three repository secrets:
 | `src/presets.ts` | looks as data: parameters plus an audio routing table |
 | `src/source.ts` | camera, screen capture, and a procedural fallback |
 | `src/audio.ts` | mic FFT to two smoothed numbers, with rolling auto-gain |
+| `src/stylizer/diffusion.ts` | the AI engine — one frame in flight, never blocks |
+| `src/prompts.ts` | style prompts for the AI engine |
+| `server/stream_server.py` | the GPU side: WebSocket in, redrawn frames out |
 | `src/sync.ts` | Supabase Realtime, falling back to BroadcastChannel |
 | `src/recorder.ts` | canvas to a file on disk |
 | `public/boot-error.js` | classic script that surfaces module load failures |
@@ -292,6 +298,48 @@ The deploy job needs three repository secrets:
 Adding a look is a data change in `presets.ts`, never a code change. Everything the
 remote can touch is a uniform, so switching looks mid-set cannot trigger a shader
 recompile.
+
+## The AI engine
+
+The shader restyles what the camera sees. It cannot reimagine it, because it
+computes each pixel from its neighbours and has no idea there is a person in
+frame. So there is a second engine: frames go out over a WebSocket to a GPU
+running SD-Turbo, and redrawn frames come back. Type "show us as a cartoon" on
+the remote and the room becomes one.
+
+Both engines implement the same `Stylizer` contract and both keep running, on
+two stacked canvases with one visible — a canvas holds either a WebGL context or
+a 2D one, never both. The shader stays live underneath so the moment the socket
+drops the projector falls back instead of freezing on a stale frame, and the
+switch does not flash black while the first round trip completes.
+
+The single most important rule is that at most one frame is ever in flight.
+Sending faster than the GPU returns would not raise the frame rate, it would
+only grow a queue — and latency is what the room perceives. A visual lagging the
+dancefloor by two seconds is worse than one running at half the rate. A frame
+that does not come back within four seconds is written off, because otherwise a
+single dropped reply latches the guard and the picture stops for good.
+
+### Running the GPU side
+
+`server/stream_server.py` is the whole server. It needs an NVIDIA GPU, so a
+rented box:
+
+```bash
+pip install -r server/requirements.txt
+python server/stream_server.py --host 0.0.0.0 --port 8765
+```
+
+Then paste `ws://<host>:8765` into the AI panel on the home page.
+
+SD-Turbo at 512px in one or two steps is what makes this interactive at all; a
+standard SD1.5 checkpoint needs twenty-plus steps and lands around a frame per
+second. Expect roughly 15–25fps on an A10G or 4090. ControlNet would hold the
+silhouette far better and roughly halves that, which on a dancefloor reads as a
+slideshow — that is the trade, not an oversight.
+
+The server drops frames that arrive mid-render rather than queueing them, for
+the same reason the client sends one at a time.
 
 ## What this is not
 
@@ -306,19 +354,6 @@ re-synthesised. The **Cel** bank goes as far as this approach can toward that
 aesthetic, and stops well short of it: flat regions and ink outlines, not
 characters.
 
-Prompt-driven restyling needs real-time img2img diffusion (StreamDiffusion / SD-Turbo,
-1–4 denoise steps, 512px). That is a server with a GPU on it, which is the thing this
-build deliberately avoids. The seam for it:
-
-- The `Stylizer` interface in `src/types.ts` is the seam: `init` / `setSource` /
-  `render` / `resize` / `dispose`. A `DiffusionStylizer` implementing those five
-  methods drops into `stage.ts` with no other change.
-- `render` would push the source frame to a WebSocket and draw the most recent
-  returned frame rather than rendering locally — the loop must never block on the
-  network, or the stage stutters every time the venue wifi hiccups.
-- `StageState` gains a `prompt` field; `remote.html` gains a text input that patches it.
-
-Modal's free monthly credit covers roughly 10–15 GPU-hours, which is enough for a
-demo night but is a hard ceiling, not a free tier. Keep the WebGL path as the
-fallback: when the endpoint is cold, unreachable, or out of credit, the room should
-still see something.
+That ceiling is why the AI engine exists alongside it rather than replacing it.
+The shader is free, offline, and runs at display rate; the model costs GPU time
+and needs a network. Neither makes the other redundant.

@@ -66,6 +66,7 @@ describe('pairing', () => {
     supabaseUrl: 'https://example.supabase.co',
     supabaseAnonKey: 'sb_publishable_test-key_value',
     transport: 'auto' as const,
+    diffusionUrl: '',
   };
 
   it('round-trips the config through a URL fragment', () => {
@@ -88,7 +89,7 @@ describe('pairing', () => {
   });
 
   it('emits nothing when there is no config worth carrying', () => {
-    expect(pairingHash({ supabaseUrl: '', supabaseAnonKey: '', transport: 'auto' })).toBe('');
+    expect(pairingHash({ supabaseUrl: '', supabaseAnonKey: '', transport: 'auto', diffusionUrl: '' })).toBe('');
   });
 
   it('reports a miss for an unrelated fragment and leaves storage alone', () => {
@@ -105,8 +106,8 @@ describe('pairing', () => {
 
 describe('hasSupabase', () => {
   it('needs both halves', () => {
-    expect(hasSupabase({ supabaseUrl: 'https://x.supabase.co', supabaseAnonKey: '', transport: 'auto' })).toBe(false);
-    expect(hasSupabase({ supabaseUrl: '', supabaseAnonKey: 'k', transport: 'auto' })).toBe(false);
-    expect(hasSupabase({ supabaseUrl: 'https://x.supabase.co', supabaseAnonKey: 'k', transport: 'auto' })).toBe(true);
+    expect(hasSupabase({ supabaseUrl: 'https://x.supabase.co', supabaseAnonKey: '', transport: 'auto', diffusionUrl: '' })).toBe(false);
+    expect(hasSupabase({ supabaseUrl: '', supabaseAnonKey: 'k', transport: 'auto', diffusionUrl: '' })).toBe(false);
+    expect(hasSupabase({ supabaseUrl: 'https://x.supabase.co', supabaseAnonKey: 'k', transport: 'auto', diffusionUrl: '' })).toBe(true);
   });
 });

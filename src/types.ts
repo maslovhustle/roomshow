@@ -114,7 +114,15 @@ export interface Look<Id extends string = string> {
   audio: AudioRouting;
 }
 
+/** Which renderer is on screen. Both stay loaded so switching is instant. */
+export type Engine = 'shader' | 'ai';
+
 export interface StageState {
+  engine: Engine;
+  /** Free text handed to the diffusion model. Ignored by the shader engine. */
+  prompt: string;
+  /** How far the model is allowed to depart from the camera frame. */
+  aiStrength: number;
   preset: string;
   intensity: number;
   source: SourceKind;
@@ -139,10 +147,10 @@ export interface Sync {
 }
 
 /**
- * The seam a diffusion backend plugs into. A DiffusionStylizer implementing
- * these five methods drops into stage.ts with no other change — `render` would
- * push the frame to a socket and draw the most recent reply rather than
- * rendering locally, and must never block on the network.
+ * Both engines implement this: the WebGL shader and the diffusion client. The
+ * one hard rule is that `render` never blocks — the AI path draws the most
+ * recent frame that came back rather than waiting for the next one, so a
+ * stalled GPU or a dropped connection freezes the picture and not the machine.
  */
 export interface Stylizer {
   init(): void;

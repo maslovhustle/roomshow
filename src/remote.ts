@@ -6,6 +6,7 @@
 import './styles/app.css';
 import { consumePairing, hasSupabase, normaliseCode } from './config';
 import { BANKS, bankOf, banksLooks } from './presets';
+import { STYLE_PROMPTS } from './prompts';
 import { createSync, msg } from './sync';
 import { PhonePublisher } from './webrtc';
 import type { BankId, Params, SourceKind, StageState, Sync } from './types';
@@ -22,6 +23,13 @@ const els = {
   grid: must<HTMLDivElement>('presets'),
   intensity: must<HTMLInputElement>('intensity'),
   intensityValue: must<HTMLSpanElement>('intensityValue'),
+  engines: must<HTMLDivElement>('engines'),
+  aiPanel: must<HTMLElement>('aiPanel'),
+  prompt: must<HTMLInputElement>('prompt'),
+  sendPrompt: must<HTMLButtonElement>('sendPrompt'),
+  styles: must<HTMLDivElement>('styles'),
+  strength: must<HTMLInputElement>('strength'),
+  strengthValue: must<HTMLSpanElement>('strengthValue'),
   sources: must<HTMLDivElement>('sources'),
   flip: must<HTMLButtonElement>('flip'),
   mirror: must<HTMLButtonElement>('mirror'),
@@ -35,6 +43,9 @@ const code = normaliseCode(new URLSearchParams(location.search).get('code'));
 let sync: Sync | null = null;
 let publisher: PhonePublisher | null = null;
 let state: StageState = {
+  engine: 'shader',
+  prompt: '',
+  aiStrength: 0.6,
   preset: 'comic',
   intensity: 0.65,
   source: 'shapes',
@@ -60,6 +71,7 @@ async function boot(): Promise<void> {
   els.code.textContent = code;
 
   buildBanks();
+  buildStyles();
   buildPresets();
   wireControls();
 
@@ -141,7 +153,42 @@ function buildPresets(): void {
   }));
 }
 
+function buildStyles(): void {
+  els.styles.replaceChildren(...STYLE_PROMPTS.map((style) => {
+    const button = document.createElement('button');
+    button.textContent = style.name;
+    button.dataset.prompt = style.prompt;
+    button.onclick = () => {
+      // Fill the box as well as sending it, so the next tap edits a real
+      // sentence rather than starting from nothing.
+      els.prompt.value = style.prompt;
+      patch({ prompt: style.prompt, engine: 'ai' });
+    };
+    return button;
+  }));
+}
+
 function wireControls(): void {
+  for (const button of els.engines.querySelectorAll('button')) {
+    button.onclick = () => {
+      const engine = button.dataset.engine;
+      if (engine === 'shader' || engine === 'ai') patch({ engine });
+    };
+  }
+
+  const send = (): void => patch({ prompt: els.prompt.value.trim(), engine: 'ai' });
+  els.sendPrompt.onclick = send;
+  els.prompt.onkeydown = (event) => {
+    if (event.key === 'Enter') send();
+  };
+
+  // `change`, not `input`: every move would otherwise renegotiate the model's
+  // configuration mid-stream for no visible gain.
+  els.strength.onchange = () => patch({ aiStrength: Number(els.strength.value) / 100 });
+  els.strength.oninput = () => {
+    els.strengthValue.textContent = `${els.strength.value}%`;
+  };
+
   // `input` not `change`: riding the fader should move the room, not wait for
   // the finger to lift.
   els.intensity.oninput = () => patch({ intensity: Number(els.intensity.value) / 100 });
@@ -204,6 +251,16 @@ function patch(next: Partial<StageState>): void {
 }
 
 function render(): void {
+  for (const button of els.engines.querySelectorAll('button')) {
+    button.classList.toggle('active', button.dataset.engine === state.engine);
+  }
+  els.aiPanel.hidden = state.engine !== 'ai';
+  if (document.activeElement !== els.prompt) els.prompt.value = state.prompt;
+  els.strength.value = String(Math.round(state.aiStrength * 100));
+  els.strengthValue.textContent = `${Math.round(state.aiStrength * 100)}%`;
+  for (const button of els.styles.querySelectorAll<HTMLButtonElement>('button')) {
+    button.classList.toggle('active', button.dataset.prompt === state.prompt);
+  }
   for (const button of els.banks.querySelectorAll<HTMLButtonElement>('.bank')) {
     button.classList.toggle('active', button.dataset.bank === bank);
     // The bank holding the live look gets a marker, so it stays findable while

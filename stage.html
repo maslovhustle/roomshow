@@ -8,6 +8,9 @@
 </head>
 <body class="stage">
   <canvas id="stage"></canvas>
+  <!-- The AI engine needs a 2D context and the shader holds a WebGL one, and a
+       canvas can only ever have one. Two elements, one visible at a time. -->
+  <canvas id="stageAi" hidden></canvas>
 
   <div id="hud">
     <h1>session</h1>
@@ -18,6 +21,7 @@
       <span id="nowPreset" class="mono"></span>
       <span id="fps" class="mono"></span>
       <span id="recDot" hidden>REC</span>
+      <span id="aiStatus" hidden></span>
     </div>
 
     <div class="row">
@@ -34,6 +38,7 @@
       <span><kbd>S</kbd> shot</span>
       <span><kbd>F</kbd> full</span>
       <span><kbd>H</kbd> hide</span>
+      <span><kbd>A</kbd> ai</span>
       <span><kbd>↑</kbd><kbd>↓</kbd> intensity</span>
     </div>
 

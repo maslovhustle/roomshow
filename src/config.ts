@@ -9,6 +9,8 @@ export interface Config {
   supabaseAnonKey: string;
   /** 'auto' picks Supabase when keys are present, BroadcastChannel otherwise. */
   transport: 'auto' | 'supabase' | 'local';
+  /** WebSocket endpoint of the diffusion server. Empty disables the AI engine. */
+  diffusionUrl: string;
 }
 
 // Baked in at build time so the app works with no setup screen. Both values are
@@ -19,6 +21,9 @@ const DEFAULTS: Config = {
   supabaseUrl: import.meta.env.VITE_SUPABASE_URL ?? '',
   supabaseAnonKey: import.meta.env.VITE_SUPABASE_KEY ?? '',
   transport: 'auto',
+  // Rented GPUs change address every session, so this is set at runtime from
+  // the home page rather than baked into the build.
+  diffusionUrl: import.meta.env.VITE_DIFFUSION_URL ?? '',
 };
 
 export function loadConfig(): Config {

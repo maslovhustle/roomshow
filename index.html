@@ -41,6 +41,18 @@
 
     <a class="explore-link" href="explore.html">Browse all 80 looks →</a>
 
+    <details class="ai-setup">
+      <summary>AI engine (rented GPU)</summary>
+      <p class="hint">
+        Point this at a machine running <code>server/stream_server.py</code> and the remote
+        gains a prompt box. Leave it empty and the app is filters only.
+      </p>
+      <label for="diffusionUrl">WebSocket endpoint</label>
+      <input id="diffusionUrl" type="text" placeholder="wss://your-gpu-box:8765" autocomplete="off" spellcheck="false">
+      <button id="saveDiffusion" style="margin-top:12px;width:100%">Save endpoint</button>
+      <p class="hint" id="diffusionStatus"></p>
+    </details>
+
     <p class="hint">
       Open the <strong>stage</strong> on the machine wired to the projector, then open the
       <strong>remote</strong> on your phone with the same code.

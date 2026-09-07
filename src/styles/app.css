@@ -33,7 +33,7 @@ a { color: var(--accent-2); }
 body.stage { overflow: hidden; cursor: none; }
 body.stage:hover { cursor: default; }
 
-#stage {
+#stage, #stageAi {
   position: fixed;
   inset: 0;
   width: 100vw;
@@ -41,6 +41,11 @@ body.stage:hover { cursor: default; }
   display: block;
   background: #000;
 }
+
+/* `display: block` above outranks the user-agent rule for [hidden]. Without
+   this the inactive engine's canvas stays stacked over the active one and the
+   projector shows black. */
+#stage[hidden], #stageAi[hidden] { display: none; }
 
 #hud {
   position: fixed;
@@ -87,6 +92,10 @@ body.stage:hover { cursor: default; }
 
 #status[data-mode="local"] { color: #ffb454; }
 #status[data-mode="supabase"] { color: var(--accent-2); }
+
+#aiStatus[data-state="live"] { color: var(--accent-2); }
+#aiStatus[data-state="connecting"] { color: #ffb454; }
+#aiStatus[data-state="offline"] { color: var(--danger); }
 
 #recDot::before {
   content: "";
@@ -520,3 +529,52 @@ body.explore {
   text-align: center;
   font-size: 13px;
 }
+
+/* ---------- ai panel ---------- */
+
+.prompt-row {
+  display: flex;
+  gap: 8px;
+}
+
+.prompt-row input {
+  flex: 1;
+  min-width: 0;
+  /* 16px or iOS zooms the page on focus and the operator loses the controls. */
+  font-size: 16px;
+}
+
+.styles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.styles button {
+  padding: 10px 6px;
+  font-size: 12px;
+  border-radius: 10px;
+}
+
+#engines button { font-weight: 600; }
+
+.ai-setup {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.ai-setup summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.ai-setup code {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+
+#diffusionStatus[data-tone="ok"] { color: var(--accent-2); }
+#diffusionStatus[data-tone="muted"] { color: var(--muted); }

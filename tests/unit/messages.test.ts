@@ -3,6 +3,9 @@ import { msg } from '../../src/sync';
 import type { StageState } from '../../src/types';
 
 const state: StageState = {
+  engine: 'shader',
+  prompt: '',
+  aiStrength: 0.6,
   preset: 'comic',
   intensity: 0.65,
   source: 'shapes',

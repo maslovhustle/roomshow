@@ -40,9 +40,10 @@ log = logging.getLogger("roomshow")
 # needs 20+ steps and lands around one frame per second.
 MODEL_ID = "stabilityai/sd-turbo"
 # Resolution is the cheapest lever there is. Measured on a 3090: 512px costs
-# 160ms a frame, 384px 110ms, 320px 92ms. On a projector in a dark room the
-# drop in detail is far less noticeable than the drop in frame rate.
-EDGE = int(os.environ.get("ROOMSHOW_EDGE", "384"))
+# 160ms a frame, 384px 110ms, 320px 92ms. On a projector in a dark room a
+# softer picture is far less noticeable than a stuttering one, and the model
+# was trained at 512 anyway — detail beyond that is invented either way.
+EDGE = int(os.environ.get("ROOMSHOW_EDGE", "320"))
 NEGATIVE = "blurry, low quality, distorted, deformed, watermark, text, extra limbs"
 
 # The idle watchdog reads this file's mtime. Touched from the frame loop rather
@@ -130,8 +131,7 @@ async def handle(websocket, engine: Engine) -> None:
     peer = websocket.remote_address
     log.info("connected %s", peer)
     prompt = ""
-    strength = 0.6
-    busy = False
+    strength = 0.8
     frames = 0
     started = time.monotonic()
 
@@ -153,12 +153,10 @@ async def handle(websocket, engine: Engine) -> None:
                 log.info("prompt=%r strength=%.2f", prompt, strength)
             continue
 
-        # Drop rather than queue. The client already sends one frame at a time,
-        # so anything arriving mid-render is a duplicate of a moment that has
-        # already passed.
-        if busy:
-            continue
-        busy = True
+        # No drop here. The client bounds how many frames it leaves outstanding,
+        # so the backlog can never exceed that; and dropping would strand the
+        # client, which frees an in-flight slot only when a reply arrives.
+        # `async for` already serialises the renders.
         try:
             began = time.perf_counter()
             frame = fit(Image.open(io.BytesIO(message)).convert("RGB"))
@@ -179,8 +177,6 @@ async def handle(websocket, engine: Engine) -> None:
                 )
         except Exception:
             log.exception("frame failed")
-        finally:
-            busy = False
 
     log.info("disconnected %s", peer)
 

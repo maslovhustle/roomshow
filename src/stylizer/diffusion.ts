@@ -17,6 +17,21 @@ const JPEG_QUALITY = 0.72;
  * packet.
  */
 const FRAME_TIMEOUT_MS = 4000;
+
+/**
+ * How many frames may be outstanding at once.
+ *
+ * One is the lowest-latency choice and it caps throughput at
+ * 1 / (transport + render): while the GPU works the link idles, and while a
+ * frame is in transit the GPU idles. Measured against a rented pod that is
+ * 291ms of transport against 151ms of render — added together, two frames a
+ * second, which reads as a slideshow rather than video.
+ *
+ * Overlapping them trades a little latency for a much smoother picture, which
+ * is the right way round for a visual: a room notices stutter long before it
+ * notices that the image is a third of a second behind.
+ */
+const MAX_IN_FLIGHT = 3;
 const RECONNECT_MS = 2500;
 
 export class DiffusionStylizer implements Stylizer {
@@ -27,8 +42,8 @@ export class DiffusionStylizer implements Stylizer {
   private source: CanvasImageSource | null = null;
   private sourceSize = { w: 1, h: 1 };
   private latest: ImageBitmap | null = null;
-  private inFlight = false;
-  private sentAt = 0;
+  private inFlight = 0;
+  private sentAt: number[] = [];
   private reconnectTimer = 0;
   private closing = false;
   private sentPrompt = '\u0000';
@@ -114,17 +129,17 @@ export class DiffusionStylizer implements Stylizer {
   private maybeSend(): void {
     if (!this.live || !this.source || !this.encoderCtx) return;
 
-    if (this.inFlight) {
-      if (performance.now() - this.sentAt < FRAME_TIMEOUT_MS) return;
-      this.inFlight = false;
-    }
+    // Retire anything that has been out too long to still be coming.
+    const now = performance.now();
+    this.sentAt = this.sentAt.filter((at) => now - at < FRAME_TIMEOUT_MS);
+    this.inFlight = this.sentAt.length;
 
-    // One frame in flight at a time. Sending faster than the GPU returns would
-    // not raise the frame rate — it would only grow a queue, and latency is the
-    // whole product here: a visual that lags the room by two seconds is worse
-    // than one that runs at half the rate.
-    this.inFlight = true;
-    this.sentAt = performance.now();
+    // Bounded, not unbounded. Without a cap the queue grows without limit and
+    // the picture drifts further behind the room every second.
+    if (this.inFlight >= MAX_IN_FLIGHT) return;
+
+    this.inFlight += 1;
+    this.sentAt.push(now);
 
     const { w, h } = this.sourceSize;
     const scale = SEND_EDGE / Math.max(w, h);
@@ -134,12 +149,12 @@ export class DiffusionStylizer implements Stylizer {
 
     this.encoder.toBlob((blob) => {
       if (!blob || !this.live) {
-        this.inFlight = false;
+        this.retire();
         return;
       }
       void blob.arrayBuffer().then((buffer) => {
         if (this.live) this.socket?.send(buffer);
-        else this.inFlight = false;
+        else this.retire();
       });
     }, 'image/jpeg', JPEG_QUALITY);
 
@@ -173,14 +188,15 @@ export class DiffusionStylizer implements Stylizer {
     this.socket = socket;
 
     socket.onopen = () => {
-      this.inFlight = false;
+      this.sentAt = [];
+      this.inFlight = 0;
       // Force the prompt to be resent: the server that had it is not this one.
       this.sentPrompt = '\u0000';
       this.setStatus('live');
     };
 
     socket.onmessage = (event: MessageEvent<Blob | string>) => {
-      this.inFlight = false;
+      this.retire();
       if (typeof event.data === 'string') return;
       void createImageBitmap(event.data).then((bitmap) => {
         this.latest?.close();
@@ -191,7 +207,8 @@ export class DiffusionStylizer implements Stylizer {
     socket.onerror = () => this.setStatus('offline', 'Could not reach the AI endpoint');
     socket.onclose = () => {
       this.socket = null;
-      this.inFlight = false;
+      this.sentAt = [];
+      this.inFlight = 0;
       this.setStatus('offline');
       this.scheduleReconnect();
     };
@@ -203,6 +220,12 @@ export class DiffusionStylizer implements Stylizer {
     // A rented GPU box reboots, a tunnel drops, a laptop sleeps. Reconnecting
     // on a timer means the operator never has to reload mid-set.
     this.reconnectTimer = window.setTimeout(() => this.connect(), RECONNECT_MS);
+  }
+
+  /** Oldest first: replies come back in the order the server received them. */
+  private retire(): void {
+    this.sentAt.shift();
+    this.inFlight = this.sentAt.length;
   }
 
   private setStatus(status: AiStatus, detail?: string): void {

@@ -44,8 +44,9 @@
     <details class="ai-setup">
       <summary>AI engine (rented GPU)</summary>
       <p class="hint">
-        Point this at a machine running <code>server/stream_server.py</code> and the remote
-        gains a prompt box. Leave it empty and the app is filters only.
+        An endpoint ships with the app, so the prompt box on the remote works out of the
+        box. Override it here to point at your own box running
+        <code>server/stream_server.py</code>.
       </p>
       <label for="diffusionUrl">WebSocket endpoint</label>
       <input id="diffusionUrl" type="text" placeholder="wss://your-gpu-box:8765" autocomplete="off" spellcheck="false">

@@ -12,9 +12,9 @@ worse than one running at half the rate.
 Run it on any box with an NVIDIA GPU:
 
     pip install -r requirements.txt
-    python stream_server.py --host 0.0.0.0 --port 8765
+    ROOMSHOW_TOKEN=something-secret python stream_server.py
 
-Then point the app at ws://<host>:8765 from its home page.
+Then point the app at wss://<host>/?token=something-secret from its home page.
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ import asyncio
 import io
 import json
 import logging
+import os
 import time
 
 import torch
@@ -39,6 +40,25 @@ log = logging.getLogger("roomshow")
 MODEL_ID = "stabilityai/sd-turbo"
 EDGE = 512
 NEGATIVE = "blurry, low quality, distorted, deformed, watermark, text, extra limbs"
+
+# The idle watchdog reads this file's mtime. Touched from the frame loop rather
+# than on connect, because a browser tab left open on a locked laptop holds a
+# socket open for hours without asking for a single frame.
+HEARTBEAT = os.environ.get("ROOMSHOW_HEARTBEAT", "/workspace/last_frame")
+_last_touch = 0.0
+
+
+def touch_heartbeat() -> None:
+    global _last_touch
+    now = time.monotonic()
+    if now - _last_touch < 5:
+        return
+    _last_touch = now
+    try:
+        with open(HEARTBEAT, "w") as handle:
+            handle.write(str(time.time()))
+    except OSError:
+        pass
 
 
 class Engine:
@@ -87,6 +107,20 @@ def fit(image: Image.Image, edge: int = EDGE) -> Image.Image:
 
 
 async def handle(websocket, engine: Engine) -> None:
+    # The RunPod proxy URL is public and unguessable only by obscurity, and what
+    # travels over it is somebody's camera. A shared token is the minimum.
+    secret = os.environ.get("ROOMSHOW_TOKEN", "")
+    if secret:
+        supplied = ""
+        _, _, query = websocket.request.path.partition("?")
+        for part in query.split("&"):
+            key, _, value = part.partition("=")
+            if key == "token":
+                supplied = value
+        if supplied != secret:
+            await websocket.close(code=4401, reason="bad token")
+            return
+
     peer = websocket.remote_address
     log.info("connected %s", peer)
     prompt = ""
@@ -120,6 +154,7 @@ async def handle(websocket, engine: Engine) -> None:
             buffer = io.BytesIO()
             out.save(buffer, format="JPEG", quality=80)
             await websocket.send(buffer.getvalue())
+            touch_heartbeat()
             frames += 1
             if frames % 60 == 0:
                 log.info("%.1f fps", frames / (time.monotonic() - started))
@@ -134,7 +169,9 @@ async def handle(websocket, engine: Engine) -> None:
 async def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=8765)
+    # 3000 by default: RunPod only proxies ports declared when the pod was
+    # created, and that is the one its ComfyUI templates already expose.
+    parser.add_argument("--port", type=int, default=3000)
     parser.add_argument("--model", default=MODEL_ID)
     args = parser.parse_args()
 

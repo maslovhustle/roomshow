@@ -52,12 +52,18 @@ const SEND_FPS = 10;
 const RECONNECT_MS = 3000;
 
 /**
- * Which model Scope should run. StreamDiffusionV2 is the video-to-video one:
- * autoregressive on Wan2.1, ~20GB of VRAM, and it carries state from frame to
- * frame. Its sibling `longlive` defaults to text-to-video, and
- * `krea-realtime-video` wants 32GB, which a 24GB card cannot give it.
+ * Which model Scope should run.
+ *
+ * LongLive rather than StreamDiffusionV2, and the reason is VACE. Both are
+ * autoregressive Wan2.1 1.3B and both keep state between frames, but only
+ * LongLive supports VACE conditioning properly — Scope's own documentation
+ * says the StreamDiffusionV2 implementation exists and that "the quality is
+ * poor right now". Without conditioning the model has no idea where the hands,
+ * the face or the walls are, which is exactly what "it looks nothing like the
+ * room" means. Measured at 11.5 fps on a 4090 at 832x480, so the structure
+ * costs nothing in speed.
  */
-const PIPELINE = 'streamdiffusionv2';
+const PIPELINE = 'longlive';
 
 /**
  * Chained after the model to fill in the frames it has no time to draw.
@@ -92,6 +98,15 @@ const UNSENT = '\u0000';
  * Style is worth little if the audience cannot find themselves in it.
  */
 const DEFAULT_NOISE = 0.45;
+
+/**
+ * How hard the incoming frame constrains the generation.
+ *
+ * 0.8 is the upper end of what ControlNet practice recommends, and this needs
+ * the upper end: the failure everyone actually notices is the picture losing
+ * the room, not the picture being insufficiently strange.
+ */
+const VACE_WEIGHT = 0.8;
 /**
  * Generation calls to spread a prompt change over. An instant switch snaps the
  * whole picture at once, which looks like a cut; interpolating across a few
@@ -419,6 +434,16 @@ export class ScopeStylizer implements Stylizer {
           input_mode: 'video',
           prompts: [{ text: this.prompt || 'a room, cinematic', weight: 1 }],
           noise_scale: this.noise,
+          // VACE is the whole difference between a picture that happens to be
+          // playing near a camera and one that is of the room. It conditions
+          // every frame on the incoming video, so the model is told where the
+          // people and the walls are instead of guessing — the same job a
+          // ControlNet does for still images.
+          vace_enabled: true,
+          vace_use_input_video: true,
+          // The conditioning weight. Too low and the structure drifts; too
+          // high and the style cannot get past the photograph underneath.
+          vace_context_scale: VACE_WEIGHT,
           // Motion-aware noise: hold still and the picture settles instead of
           // simmering, move and the model is allowed to redraw more.
           noise_controller: true,

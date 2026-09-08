@@ -25,8 +25,21 @@ Fewer than 12 means a broken host. Delete the pod and create another.
 
 ```bash
 curl -X POST "$SCOPE/api/v1/models/download" -H 'Content-Type: application/json' \
-  -d '{"pipeline_id":"streamdiffusionv2"}'
+  -d '{"pipeline_id":"longlive"}'
 ```
+
+**LongLive, not StreamDiffusionV2.** Both are autoregressive Wan2.1 1.3B and
+both keep state between frames, but only LongLive supports VACE properly —
+Scope's own docs say the StreamDiffusionV2 implementation exists and that "the
+quality is poor right now". VACE is what conditions each frame on the incoming
+video, so the model knows where the people and the walls are rather than
+guessing; it is the same job a ControlNet does for a still image, and without
+it the output looks nothing like the room it is standing in. It costs nothing
+in speed: 11.5 fps measured on a 4090 at 832x480, against 12 without it.
+
+The download queue is one at a time. Asking for a second pipeline while the
+first is running looks exactly like a stall — the progress figure freezes and
+`is_downloading` reads false.
 
 Do not trust `GET /api/v1/models/status`. On a host without CUDA it reports
 `downloaded: true` with zero files present — `models_are_downloaded` iterates the
@@ -38,7 +51,7 @@ the browser's `pipeline_ids` matches it:
 
 ```bash
 curl -X POST "$SCOPE/api/v1/pipeline/load" -H 'Content-Type: application/json' -d '{
-  "pipelines":[{"node_id":"streamdiffusionv2","pipeline_id":"streamdiffusionv2",
+  "pipelines":[{"node_id":"longlive","pipeline_id":"longlive",
     "load_params":{"width":832,"height":480,"vae_type":"lighttae"}}]}'
 ```
 
@@ -53,7 +66,7 @@ server before loading if you hit that.
 
 ## Frame interpolation
 
-The browser asks for `streamdiffusionv2` and `rife` as a chain, so both must be
+The browser asks for `longlive` and `rife` as a chain, so both must be
 loaded. RIFE synthesises a frame between each pair the model produces, which is
 cheap next to a diffusion step and makes the difference between a picture that
 arrives in clumps and one that moves: over the same thirty seconds of the same

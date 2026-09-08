@@ -40,6 +40,12 @@ body.stage:hover { cursor: default; }
   height: 100vh;
   display: block;
   background: #000;
+  /* The AI canvas is sized to the model's own output rather than the window,
+     so that the picture is scaled once, by the compositor, instead of being
+     stretched into a big backing store first and scaled again after. A canvas
+     is a replaced element, so object-fit applies: cover fills the wall and
+     crops the slight difference in aspect rather than distorting faces. */
+  object-fit: cover;
 }
 
 /* `display: block` above outranks the user-agent rule for [hidden]. Without

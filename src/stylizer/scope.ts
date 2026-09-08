@@ -381,9 +381,20 @@ export class ScopeStylizer implements Stylizer {
     this.sourceSize = { w: width || 1, h: height || 1 };
   }
 
-  resize(width: number, height: number): void {
-    this.canvas.width = width;
-    this.canvas.height = height;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- the canvas follows the model, not the window
+  resize(_width: number, _height: number): void {
+    // Deliberately ignores the window.
+    //
+    // The shader renders at the display's own resolution, so it takes the
+    // window's. This engine does not: the picture arrives at whatever size the
+    // model produces, and blowing it up into a 1920-wide backing store only to
+    // let CSS scale that to the screen resamples it twice. The first of those
+    // is a plain bilinear stretch in canvas, and it is what made the projected
+    // image look soft.
+    //
+    // Sizing the canvas to the frame instead leaves exactly one scale, done by
+    // the compositor on the way to the screen. CSS already stretches this
+    // element edge to edge, so the picture still fills the wall.
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- shader params do not apply
@@ -406,16 +417,14 @@ export class ScopeStylizer implements Stylizer {
 
     // Inbound: whatever the model has produced most recently. Before the first
     // frame arrives the video has no dimensions, and drawing it would throw.
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     if (this.sink.videoWidth === 0) return;
-    const scale = Math.max(
-      this.canvas.width / this.sink.videoWidth,
-      this.canvas.height / this.sink.videoHeight,
-    );
-    const dw = this.sink.videoWidth * scale;
-    const dh = this.sink.videoHeight * scale;
-    ctx.drawImage(this.sink, (this.canvas.width - dw) / 2, (this.canvas.height - dh) / 2, dw, dh);
+    // One pixel of canvas per pixel of model output. Any other size is a
+    // resample, and there is already one waiting on the way to the screen.
+    if (this.canvas.width !== this.sink.videoWidth) {
+      this.canvas.width = this.sink.videoWidth;
+      this.canvas.height = this.sink.videoHeight;
+    }
+    ctx.drawImage(this.sink, 0, 0);
   }
 
   private teardown(): void {

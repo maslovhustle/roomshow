@@ -197,7 +197,16 @@ export class ScopeStylizer implements Stylizer {
       pc.addTransceiver('video', { direction: 'sendrecv' });
       const [sender] = pc.getSenders();
       const track = this.feed.captureStream(SEND_FPS).getVideoTracks()[0];
-      if (sender && track) await sender.replaceTrack(track);
+      if (sender && track) {
+        // Tell the encoder this is detail, not motion. Left to itself it
+        // assumes a video call, where a soft picture that keeps moving beats a
+        // sharp one that stutters — and it is right about video calls and
+        // wrong about this. Every pixel it throws away here is a pixel the
+        // model never sees, and it cannot restore what it was not sent.
+        track.contentHint = 'detail';
+        await sender.replaceTrack(track);
+        await this.holdResolution(sender);
+      }
 
       pc.ontrack = (event) => {
         const [stream] = event.streams;
@@ -330,6 +339,33 @@ export class ScopeStylizer implements Stylizer {
       return ', its model is not loaded yet';
     } catch {
       return '';
+    }
+  }
+
+  /**
+   * Stop the encoder from shrinking the picture when the link is tight.
+   *
+   * Over a relay the browser's congestion control drops resolution to protect
+   * the frame rate: an 832x480 capture was going out at 624x360. That is a
+   * sensible default for a video call and the wrong one here, because the far
+   * end is a model that redraws whatever it is given. Feed it a small soft
+   * frame and it returns a large soft frame, which is exactly what the room
+   * sees — and no amount of upscaling afterwards puts back detail that was
+   * never transmitted.
+   *
+   * So: keep the resolution and let the frame rate give instead. RIFE is
+   * already downstream to make up the frames.
+   */
+  private async holdResolution(sender: RTCRtpSender): Promise<void> {
+    try {
+      const params = sender.getParameters();
+      params.degradationPreference = 'maintain-resolution';
+      const [existing] = params.encodings ?? [];
+      params.encodings = [{ ...existing, scaleResolutionDownBy: 1, maxBitrate: 6_000_000 }];
+      await sender.setParameters(params);
+    } catch {
+      // Older browsers reject unknown fields wholesale. A soft picture is a
+      // worse picture, not a broken one, so this is never worth failing over.
     }
   }
 

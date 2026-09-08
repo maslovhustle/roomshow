@@ -57,6 +57,8 @@ export const PARAM_DEFAULTS: Params = {
   tracking: 0,   // per-scanline tape jitter
   paper: 0,      // medium texture, overlay blend
   distress: 0,   // medium texture as displacement
+  toon: 0,       // edge-preserving flattening into paint regions
+  ink: 0,        // difference-of-gaussians outlines
 
   tintA: [0.05, 0.02, 0.12],
   tintB: [0.98, 0.42, 0.86],
@@ -807,7 +809,51 @@ const SIGNAL = [
   }),
 ];
 
+// Cartoon proper: Kuwahara flattening and difference-of-gaussians ink, rather
+// than the blur-and-posterise the Cel bank uses. The difference on a face is
+// the difference between a photograph with fewer colours and something drawn —
+// skin becomes one paint region, the jaw keeps its line, and nothing softens.
+//
+// These are the answer to "make it a cartoon" for anyone with no GPU to rent:
+// no model, no network, no latency, and every line lands exactly where the
+// person actually is rather than where something guessed they were.
+const TOON: readonly Look[] = [
+  look('saturday', 'Saturday', {
+    toon: 0.62, ink: 0.55, sat: 0.66, contrast: 0.56,
+  }, { bass: { toon: 0.12 }, energy: { ink: 0.15 } }),
+
+  look('bold-toon', 'Bold', {
+    toon: 0.85, ink: 0.8, sat: 0.7, contrast: 0.62,
+  }, { bass: { toon: -0.15 }, energy: { ink: 0.2 } }),
+
+  look('lineart', 'Line Art', {
+    toon: 0.65, ink: 0.7, sat: 0.5, contrast: 0.6,
+  }, { bass: { contrast: -0.18 }, energy: { ink: 0.1 } }),
+
+  look('flat-paint', 'Flat Paint', {
+    toon: 0.9, ink: 0.22, sat: 0.6, contrast: 0.52, paper: 0.3,
+  }, { bass: { toon: -0.12 }, energy: { paper: 0.15 } }),
+
+  look('toon-noir', 'Toon Noir', {
+    toon: 0.78, ink: 0.62, sat: 0.12, contrast: 0.66, vignette: 0.4,
+  }, { bass: { contrast: -0.2 }, energy: { ink: 0.12 } }),
+
+  look('sunday-strip', 'Sunday Strip', {
+    toon: 0.7, ink: 0.6, halftone: 0.45, sat: 0.72, contrast: 0.58,
+  }, { bass: { halftone: -0.2 }, energy: { toon: 0.1 } }),
+
+  look('storyboard', 'Storyboard', {
+    toon: 0.7, ink: 0.55, duotone: 0.55, contrast: 0.6,
+    tintA: [0.1, 0.09, 0.08], tintB: [0.95, 0.93, 0.86],
+  }, { bass: { duotone: -0.2 }, energy: { ink: 0.12 } }),
+
+  look('poster-paint', 'Poster Paint', {
+    toon: 0.95, ink: 0.45, sat: 0.85, contrast: 0.6, glow: 0.15,
+  }, { bass: { sat: -0.2 }, energy: { glow: 0.2 } }),
+];
+
 export const BANKS = [
+  { id: 'toon', name: 'Toon', looks: TOON },
   { id: 'cel', name: 'Cel', looks: CEL },
   { id: 'film', name: 'Film', looks: FILM },
   { id: 'raster', name: 'Raster', looks: RASTER },

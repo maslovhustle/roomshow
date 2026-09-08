@@ -49,6 +49,10 @@ uniform float pSlice;
 uniform float pSat;
 uniform float pContrast;
 uniform float pSmooth;
+/** Cartoon: flatten into paint, decide the tones, then ink the boundaries. */
+uniform float pToon;
+/** How black and how heavy the ink is. Separate, because a look may want one without the other. */
+uniform float pInk;
 uniform float pDither;
 uniform float pThreshold;
 uniform float pTemp;
@@ -107,6 +111,81 @@ vec3 sampleBase(vec2 uv) {
   sum += sampleSrc(uv + vec2( r.x, -r.y) * 0.7);
   sum += sampleSrc(uv + vec2(-r.x,  r.y) * 0.7);
   return sum / 10.0;
+}
+
+// Cartoon, the way it was done before diffusion existed.
+//
+// Three steps, and the order is the whole trick:
+//
+//   1. Kuwahara. For each pixel it looks at four overlapping square sectors
+//      and takes the mean of whichever varies least. Inside a cheek that is
+//      every sector, so the skin flattens into one paint colour; across an
+//      edge only the sector on one side is uniform, so the edge does not move
+//      and does not soften. A gaussian blur cannot do this — it averages
+//      across the boundary, which is why plain smoothing alone reads as out
+//      of focus rather than as drawn.
+//   2. Quantise what is left, so the flat regions become a few decided tones
+//      instead of a hundred nearly-equal ones.
+//   3. Ink the boundaries with a difference of gaussians, which gives a line
+//      of even weight that follows the form. Sobel gives a gradient magnitude
+//      instead: thick where contrast is high, absent where it is not, more
+//      like a smudge than a pen.
+//
+// It runs entirely on the source frame, so there is no model, no network and
+// no latency — and unlike anything generated, every line lands exactly where
+// the person actually is.
+vec3 kuwahara(vec2 uv, float radius) {
+  vec2 t = radius / uRes;
+  vec3 bestMean = sampleSrc(uv);
+  float bestVar = 1e9;
+
+  // Four sectors, each a 3x3 grid over one quadrant of the neighbourhood.
+  for (int s = 0; s < 4; s++) {
+    vec2 dir = vec2(s == 0 || s == 3 ? -1.0 : 1.0, s < 2 ? -1.0 : 1.0);
+    vec3 sum = vec3(0.0);
+    vec3 sum2 = vec3(0.0);
+    for (int i = 0; i < 3; i++) {
+      for (int j = 0; j < 3; j++) {
+        vec2 o = vec2(float(i), float(j)) * 0.5 * dir * t;
+        vec3 c = sampleSrc(uv + o);
+        sum += c;
+        sum2 += c * c;
+      }
+    }
+    vec3 mean = sum / 9.0;
+    vec3 var = sum2 / 9.0 - mean * mean;
+    float v = var.r + var.g + var.b;
+    if (v < bestVar) {
+      bestVar = v;
+      bestMean = mean;
+    }
+  }
+  return bestMean;
+}
+
+// Difference of gaussians: two blurs of different width subtracted from one
+// another leave only what changed between them, which is the edges. Thresholded
+// it becomes ink of even weight rather than a gradient of grey.
+float inkLine(vec2 uv, float width) {
+  vec2 t = width / uRes;
+  float near = 0.0;
+  float far = 0.0;
+  // Both taps are averages over a neighbourhood, not single pixels. Sampling
+  // raw pixels inks every leaf and every blade of grass, which is not a
+  // drawing but a rubbing: the first version of this turned a forest into a
+  // black rectangle. Averaging first sets a scale below which detail is
+  // texture rather than an outline, and only shapes larger than that get a pen.
+  for (int i = -1; i <= 1; i++) {
+    for (int j = -1; j <= 1; j++) {
+      vec2 o = vec2(float(i), float(j)) * t;
+      near += luma(sampleSrc(uv + o * 2.0));
+      far += luma(sampleSrc(uv + o * 5.5));
+    }
+  }
+  float d = (near - far) / 9.0;
+  // A wide dead band, so only a real boundary crosses it. Narrow and the
+  // picture fills with hesitant grey scribble everywhere the sensor is noisy.
+  return 1.0 - smoothstep(-0.035, 0.005, d);
 }
 
 vec2 kaleido(vec2 uv, float amt, float t) {
@@ -272,6 +351,25 @@ void main() {
     float was = luma(texture2D(uMotionPrev, c).rgb);
     float moved = clamp(abs(now - was) * mix(5.0, 18.0, pMotion), 0.0, 1.0);
     col = mix(col, col * moved, pMotion);
+  }
+
+  if (pToon > 0.001) {
+    // Radius grows with the amount, so the fader runs from a light flattening
+    // to broad poster-paint regions rather than only changing how much of the
+    // original shows through.
+    // Deliberately not named flat, which is a reserved word in GLSL; the
+    // compiler says so, into a console nobody is watching during a show.
+    vec3 painted = kuwahara(uv, mix(1.5, 6.0, pToon));
+    float levels = mix(16.0, 4.0, pToon);
+    painted = floor(painted * levels + 0.5) / levels;
+    col = mix(col, painted, pToon);
+  }
+
+  if (pInk > 0.001) {
+    // Multiplied in, not added: ink darkens what is under it the way a pen on
+    // paint does, and leaves the flat colour untouched everywhere else.
+    float line = inkLine(uv, mix(1.0, 2.4, pInk));
+    col *= 1.0 - line * pInk;
   }
 
   if (pEdge > 0.001) {
@@ -493,7 +591,7 @@ const SCALAR_PARAMS = [
   'invert', 'halftone', 'scanline', 'grain', 'slice', 'sat', 'contrast', 'smooth',
   'dither', 'threshold', 'temp', 'gamma', 'swirl', 'emboss', 'halation',
   'ascii', 'led', 'ripple', 'pinch', 'aberration', 'motion',
-  'bleed', 'tracking', 'paper', 'distress',
+  'bleed', 'tracking', 'paper', 'distress', 'toon', 'ink',
 ] as const satisfies readonly ScalarParam[];
 
 // Ramp from sparse to dense. Rendered into a strip once at startup and sampled

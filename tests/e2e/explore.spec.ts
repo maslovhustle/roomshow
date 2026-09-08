@@ -1,19 +1,23 @@
 import { expect, test } from '@playwright/test';
+import { BANKS, PRESETS } from '../../src/presets';
 
 test.describe('the look gallery', () => {
   test('lists every look', async ({ page }) => {
     await page.goto('/explore.html');
-    await expect(page.locator('#count')).toHaveText('80 looks');
-    await expect(page.locator('.tile')).toHaveCount(80);
+    // Counted from the data, not written down: a hardcoded number turns every
+    // new look into a failing test that says nothing about what broke.
+    await expect(page.locator('#count')).toHaveText(`${PRESETS.length} looks`);
+    await expect(page.locator('.tile')).toHaveCount(PRESETS.length);
   });
 
   // The filter once updated the count while the grid ignored it, because a
   // class rule outranked the user-agent style for [hidden].
   test('actually hides the tiles it filters out', async ({ page }) => {
     await page.goto('/explore.html');
+    const medium = BANKS.find((bank) => bank.id === 'medium')!;
     await page.locator('.bank[data-bank="medium"]').click();
-    await expect(page.locator('#count')).toHaveText('8 looks');
-    await expect(page.locator('.tile:visible')).toHaveCount(8);
+    await expect(page.locator('#count')).toHaveText(`${medium.looks.length} looks`);
+    await expect(page.locator('.tile:visible')).toHaveCount(medium.looks.length);
   });
 
   test('paints previews rather than leaving empty canvases', async ({ page }) => {
@@ -40,7 +44,10 @@ test.describe('the look gallery', () => {
   test('sends a tile into the stage with that look selected', async ({ page }) => {
     await page.goto('/explore.html');
     await expect(page.locator('.tile').first()).toBeVisible();
-    await expect(page.locator('.tile').first()).toHaveAttribute('href', 'stage.html?look=comic');
+    await expect(page.locator('.tile').first()).toHaveAttribute(
+      'href',
+      `stage.html?look=${PRESETS[0]!.id}`,
+    );
   });
 });
 

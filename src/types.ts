@@ -1,6 +1,6 @@
 export type RGB = readonly [number, number, number];
 
-export type BankId = 'cel' | 'film' | 'medium' | 'raster' | 'lens' | 'ink' | 'neon' | 'trail' | 'optic' | 'signal';
+export type BankId = 'toon' | 'cel' | 'film' | 'medium' | 'raster' | 'lens' | 'ink' | 'neon' | 'trail' | 'optic' | 'signal';
 
 export type SourceKind = 'phone' | 'camera' | 'screen' | 'shapes';
 
@@ -79,6 +79,14 @@ export interface Params {
   paper: number;
   /** Displaces by the medium texture, breaking edges along the fibre. */
   distress: number;
+  /**
+   * Cartoon. Edge-preserving flattening into paint regions, then quantised
+   * tones — the pre-diffusion way of drawing a person, and the only way that
+   * needs no GPU on the far end and adds no latency at all.
+   */
+  toon: number;
+  /** Ink outlines, from a difference of gaussians rather than a gradient. */
+  ink: number;
   /** Four stops of the gradient map, dark to light. */
   tintA: RGB;
   tintB: RGB;

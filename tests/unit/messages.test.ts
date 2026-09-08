@@ -5,6 +5,7 @@ import type { StageState } from '../../src/types';
 const state: StageState = {
   engine: 'shader',
   aiStatus: 'off',
+  aiDetail: '',
   prompt: '',
   // Measured against moving footage, not a still. Strength is how far the model
   // may depart from the frame, and past about 0.5 it stops tracking the camera

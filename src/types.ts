@@ -128,6 +128,15 @@ export interface StageState {
   engine: Engine;
   /** Broadcast by the stage: only it knows whether an endpoint is configured. */
   aiStatus: AiStatus;
+  /**
+   * Why the AI engine is in that state, when the engine knows something more
+   * useful than the status name. "Unreachable" and "reachable but the video
+   * cannot get there" are the same status and completely different problems,
+   * and the operator is holding the phone, not watching the stage HUD.
+   *
+   * Empty means the generic explanation for the status will do.
+   */
+  aiDetail: string;
   /** Free text handed to the diffusion model. Ignored by the shader engine. */
   prompt: string;
   /** How far the model is allowed to depart from the camera frame. */

@@ -45,6 +45,7 @@ let publisher: PhonePublisher | null = null;
 let state: StageState = {
   engine: 'shader',
   aiStatus: 'off',
+  aiDetail: '',
   prompt: '',
   // Measured against moving footage, not a still. Strength is how far the model
   // may depart from the frame, and past about 0.5 it stops tracking the camera
@@ -261,6 +262,13 @@ function patch(next: Partial<StageState>): void {
   sync?.send(msg.patch(next));
 }
 
+/**
+ * The last thing we put in the notice about the AI engine, so that clearing it
+ * only ever clears our own message and never something else that has since
+ * claimed the same strip of screen.
+ */
+let lastExplanation = '';
+
 const AI_EXPLANATION: Record<string, string> = {
   off: 'The stage has no AI endpoint set. Add one on its home page under "AI engine", then reload the stage.',
   connecting: 'Reaching the AI engine…',
@@ -279,9 +287,14 @@ function render(): void {
     button.disabled = isAi && !aiReady;
     if (isAi) button.textContent = state.aiStatus === 'live' ? 'AI ✦' : `AI ✦ (${state.aiStatus})`;
   }
-  if (state.aiStatus !== 'live' && AI_EXPLANATION[state.aiStatus]) {
-    showNotice(AI_EXPLANATION[state.aiStatus]!);
-  } else if (els.notice.textContent && Object.values(AI_EXPLANATION).includes(els.notice.textContent)) {
+  // The stage's own reason wins over the generic one. "Unreachable" and
+  // "reachable, but the video cannot get there" share a status and need
+  // opposite responses, and only the engine can tell them apart.
+  const explanation = state.aiDetail || AI_EXPLANATION[state.aiStatus];
+  if (state.aiStatus !== 'live' && explanation) {
+    showNotice(explanation);
+    lastExplanation = explanation;
+  } else if (els.notice.textContent && els.notice.textContent === lastExplanation) {
     els.notice.hidden = true;
   }
   els.aiPanel.hidden = state.engine !== 'ai';

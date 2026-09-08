@@ -9,8 +9,37 @@ export interface Config {
   supabaseAnonKey: string;
   /** 'auto' picks Supabase when keys are present, BroadcastChannel otherwise. */
   transport: 'auto' | 'supabase' | 'local';
-  /** WebSocket endpoint of the diffusion server. Empty disables the AI engine. */
+  /**
+   * Origin of the AI engine. Empty means none is configured; stored as an
+   * explicit null it means the operator turned the engine off deliberately.
+   */
   diffusionUrl: string;
+  /**
+   * Extra ICE servers, as the JSON array RTCPeerConnection expects.
+   *
+   * STUN only tells each end its own public address; it cannot carry traffic.
+   * That is enough between a phone and a laptop on one wifi, and never enough
+   * to reach a rented GPU: the pod's proxy forwards HTTP but not the inbound
+   * UDP that video needs, so the two ends can never meet directly and
+   * something has to relay.
+   *
+   * A relay here fixes that on its own — the browser offers a relay candidate
+   * with a publicly reachable address, and the pod, whose outbound path works
+   * fine, connects to it. Nothing has to change on the pod.
+   */
+  turnServers: RTCIceServer[];
+}
+
+function parseIceServers(raw: string): RTCIceServer[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as RTCIceServer[]) : [];
+  } catch {
+    // A malformed relay config must not take the whole app down with it; the
+    // engine still works wherever a direct path exists.
+    return [];
+  }
 }
 
 // Baked in at build time so the app works with no setup screen. Both values are
@@ -24,7 +53,16 @@ const DEFAULTS: Config = {
   // Rented GPUs change address every session, so this is set at runtime from
   // the home page rather than baked into the build.
   diffusionUrl: import.meta.env.VITE_DIFFUSION_URL ?? '',
+  turnServers: parseIceServers(import.meta.env.VITE_TURN_SERVERS ?? ''),
 };
+
+/**
+ * The endpoint baked in at build time, before any saved override. Exposed so
+ * the home page can say which one is actually in use — a saved endpoint and a
+ * shipped one look identical from the outside until one of them stops
+ * answering.
+ */
+export const BUILT_IN_DIFFUSION_URL = DEFAULTS.diffusionUrl;
 
 export function loadConfig(): Config {
   try {
@@ -34,7 +72,20 @@ export function loadConfig(): Config {
     const overrides = Object.fromEntries(
       Object.entries(stored).filter(([, value]) => value !== '' && value != null),
     ) as Partial<Config>;
-    return { ...DEFAULTS, ...overrides };
+    const merged = { ...DEFAULTS, ...overrides };
+    // An explicit null is the one way to say "no AI engine, on purpose".
+    //
+    // Empty and absent both have to mean "use the built-in", because a
+    // half-filled setup form used to wipe a working install. That left no way
+    // to turn the engine off at all — the shipped default always won — which
+    // matters for a venue with no GPU, and for a test that needs to state the
+    // unconfigured case rather than hope the environment provides it.
+    if (stored.diffusionUrl === null) merged.diffusionUrl = '';
+    // Everything else in here is a string, so a corrupted entry is merely a
+    // wrong string. This one is handed to RTCPeerConnection, which throws on
+    // the wrong shape — and it would throw at connect time, far from the cause.
+    if (!Array.isArray(merged.turnServers)) merged.turnServers = [];
+    return merged;
   } catch {
     // A corrupted entry is not worth surfacing — fall back to defaults.
     return { ...DEFAULTS };

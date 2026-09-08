@@ -12,6 +12,7 @@ import { BANKS, PRESETS, bankOf, banksLooks, resolveParams } from './presets';
 import { createSync, msg } from './sync';
 import { WebGLStylizer } from './stylizer/webgl';
 import { DiffusionStylizer } from './stylizer/diffusion';
+import { ScopeStylizer } from './stylizer/scope';
 import { loadConfig } from './config';
 import { SourceManager } from './source';
 import { CanvasRecorder, snapshot } from './recorder';
@@ -45,8 +46,20 @@ const recorder = new CanvasRecorder(canvas);
 
 // The AI engine only exists when an endpoint is configured. Everything below
 // treats it as optional, so an unconfigured install behaves exactly as before.
-const diffusionUrl = loadConfig().diffusionUrl;
-const diffusion = diffusionUrl ? new DiffusionStylizer(aiCanvas, diffusionUrl) : null;
+//
+// Which of the two AI engines runs is read off the endpoint's scheme, so there
+// is one setting rather than two and no way to configure a contradiction:
+//
+//   wss://…   the per-frame socket engine (stylizer/diffusion.ts)
+//   https://… Daydream Scope, which streams video over WebRTC and keeps state
+//             between frames (stylizer/scope.ts)
+const cfg = loadConfig();
+const diffusionUrl = cfg.diffusionUrl;
+const diffusion = !diffusionUrl
+  ? null
+  : /^https?:/.test(diffusionUrl)
+    ? new ScopeStylizer(aiCanvas, diffusionUrl, cfg.turnServers)
+    : new DiffusionStylizer(aiCanvas, diffusionUrl);
 
 // A look can be named in the URL, which is what the gallery links to. An
 // unknown id falls through to the default rather than rendering nothing.
@@ -55,6 +68,7 @@ const wanted = new URLSearchParams(location.search).get('look');
 const state: StageState = {
   engine: 'shader',
   aiStatus: 'off',
+  aiDetail: '',
   prompt: '',
   // Measured against moving footage, not a still. Strength is how far the model
   // may depart from the frame, and past about 0.5 it stops tracking the camera
@@ -95,7 +109,9 @@ async function boot(): Promise<void> {
   stylizer.init();
   if (diffusion) {
     state.aiStatus = 'connecting';
-    diffusion.init();
+    // The handler goes on before init(), not after: connecting is reported
+    // synchronously from inside init(), so assigning afterwards swallowed the
+    // first status and left the HUD blank until something else changed.
     diffusion.onStatus = (status, detail) => {
       els.ai.hidden = false;
       els.ai.textContent = `ai: ${status}`;
@@ -103,6 +119,7 @@ async function boot(): Promise<void> {
       // The phone is the only screen the operator is looking at, so the status
       // has to travel to it rather than sitting in the stage HUD.
       state.aiStatus = status;
+      state.aiDetail = detail ?? '';
       sync?.send(msg.state(state));
       if (status === 'offline' && detail) fail(detail);
       // Falling back rather than showing a frozen frame: a projector with a
@@ -110,6 +127,7 @@ async function boot(): Promise<void> {
       if (status !== 'live' && state.engine === 'ai') showEngine('shader');
       else showEngine(state.engine);
     };
+    diffusion.init();
   }
 
   await source.use('shapes');

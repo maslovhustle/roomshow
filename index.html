@@ -48,9 +48,10 @@
         box. Override it here to point at your own box running
         <code>server/stream_server.py</code>.
       </p>
-      <label for="diffusionUrl">WebSocket endpoint</label>
-      <input id="diffusionUrl" type="text" placeholder="wss://your-gpu-box:8765" autocomplete="off" spellcheck="false">
+      <label for="diffusionUrl">AI endpoint</label>
+      <input id="diffusionUrl" type="text" placeholder="https://your-scope-box:8000" autocomplete="off" spellcheck="false">
       <button id="saveDiffusion" style="margin-top:12px;width:100%">Save endpoint</button>
+      <button id="resetDiffusion" style="margin-top:8px;width:100%">Use the built-in endpoint</button>
       <p class="hint" id="diffusionStatus"></p>
     </details>
 

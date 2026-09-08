@@ -1,12 +1,21 @@
 import { expect, test } from '@playwright/test';
+import { STYLE_PROMPTS } from '../../src/prompts';
 
 const UNREACHABLE = 'ws://127.0.0.1:59999';
 
+/**
+ * An explicit null, not an empty string or an absent key: both of those mean
+ * "use whatever the build ships with", and the build usually ships with a real
+ * endpoint. Only null states the unconfigured case, so these tests read the
+ * same on a laptop with a pod running and on CI with none.
+ */
+const NO_ENGINE = { transport: 'local', diffusionUrl: null };
+
 test.describe('the AI engine', () => {
   test('stays out of the way when no endpoint is configured', async ({ page }) => {
-    await page.addInitScript(() => {
-      localStorage.setItem('roomshow.config', JSON.stringify({ transport: 'local' }));
-    });
+    await page.addInitScript((cfg) => {
+      localStorage.setItem('roomshow.config', JSON.stringify(cfg));
+    }, NO_ENGINE);
     await page.goto('/stage.html?code=NOAI');
     await expect(page.locator('#nowPreset')).toHaveText(/cel · comic/, { timeout: 20_000 });
     await expect(page.locator('#aiStatus')).toBeHidden();
@@ -44,24 +53,37 @@ test.describe('the AI engine', () => {
     }), { timeout: 20_000 }).toBeGreaterThan(0.1);
   });
 
-  test('offers prompts on the remote only once the AI engine is picked', async ({ page }) => {
-    await page.addInitScript(() => {
-      localStorage.setItem('roomshow.config', JSON.stringify({ transport: 'local' }));
-    });
+  // Offering a button that snaps back two seconds later reads as a broken
+  // button, not as a missing endpoint — so the remote refuses the tap and says
+  // why instead.
+  test('refuses the AI engine, with a reason, when the stage has none', async ({ page }) => {
+    await page.addInitScript((cfg) => {
+      localStorage.setItem('roomshow.config', JSON.stringify(cfg));
+    }, NO_ENGINE);
     await page.goto('/remote.html?code=PROM');
 
+    await expect(page.locator('[data-engine="ai"]')).toBeDisabled();
+    await expect(page.locator('#notice')).toContainText(/no AI endpoint/i);
     await expect(page.locator('#aiPanel')).toBeHidden();
-    await page.locator('[data-engine="ai"]').click();
-    await expect(page.locator('#aiPanel')).toBeVisible();
-    await expect(page.locator('#styles button')).toHaveCount(12);
   });
 
-  test('fills the box from a style, so the next tap edits a real sentence', async ({ page }) => {
-    await page.addInitScript(() => {
-      localStorage.setItem('roomshow.config', JSON.stringify({ transport: 'local' }));
-    });
+  test('offers every style once a stage reports an engine', async ({ page }) => {
+    await page.addInitScript((url) => {
+      localStorage.setItem('roomshow.config', JSON.stringify({ transport: 'local', diffusionUrl: url }));
+    }, UNREACHABLE);
+
+    // The remote learns the engine exists only from the stage, so one has to be
+    // running: BroadcastChannel carries the state between the two documents.
+    const stage = await page.context().newPage();
+    await stage.goto('/stage.html?code=PROM');
     await page.goto('/remote.html?code=PROM');
-    await page.locator('[data-engine="ai"]').click();
+
+    const ai = page.locator('[data-engine="ai"]');
+    await expect(ai).toBeEnabled({ timeout: 20_000 });
+    await ai.click();
+    await expect(page.locator('#aiPanel')).toBeVisible();
+    await expect(page.locator('#styles button')).toHaveCount(STYLE_PROMPTS.length);
+
     await page.locator('#styles button').first().click();
     await expect(page.locator('#prompt')).toHaveValue(/cel animation/);
   });

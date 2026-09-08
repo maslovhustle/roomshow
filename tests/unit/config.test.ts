@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  BUILT_IN_DIFFUSION_URL,
   consumePairing,
   hasSupabase,
   loadConfig,
@@ -67,6 +68,7 @@ describe('pairing', () => {
     supabaseAnonKey: 'sb_publishable_test-key_value',
     transport: 'auto' as const,
     diffusionUrl: '',
+    turnServers: [],
   };
 
   it('round-trips the config through a URL fragment', () => {
@@ -89,7 +91,7 @@ describe('pairing', () => {
   });
 
   it('emits nothing when there is no config worth carrying', () => {
-    expect(pairingHash({ supabaseUrl: '', supabaseAnonKey: '', transport: 'auto', diffusionUrl: '' })).toBe('');
+    expect(pairingHash({ supabaseUrl: '', supabaseAnonKey: '', transport: 'auto', diffusionUrl: '', turnServers: [] })).toBe('');
   });
 
   it('reports a miss for an unrelated fragment and leaves storage alone', () => {
@@ -106,8 +108,41 @@ describe('pairing', () => {
 
 describe('hasSupabase', () => {
   it('needs both halves', () => {
-    expect(hasSupabase({ supabaseUrl: 'https://x.supabase.co', supabaseAnonKey: '', transport: 'auto', diffusionUrl: '' })).toBe(false);
-    expect(hasSupabase({ supabaseUrl: '', supabaseAnonKey: 'k', transport: 'auto', diffusionUrl: '' })).toBe(false);
-    expect(hasSupabase({ supabaseUrl: 'https://x.supabase.co', supabaseAnonKey: 'k', transport: 'auto', diffusionUrl: '' })).toBe(true);
+    expect(hasSupabase({ supabaseUrl: 'https://x.supabase.co', supabaseAnonKey: '', transport: 'auto', diffusionUrl: '', turnServers: [] })).toBe(false);
+    expect(hasSupabase({ supabaseUrl: '', supabaseAnonKey: 'k', transport: 'auto', diffusionUrl: '', turnServers: [] })).toBe(false);
+    expect(hasSupabase({ supabaseUrl: 'https://x.supabase.co', supabaseAnonKey: 'k', transport: 'auto', diffusionUrl: '', turnServers: [] })).toBe(true);
+  });
+});
+
+describe('relay servers', () => {
+  it('reads the ICE server list the cloud path needs', () => {
+    // A relay is not a nicety here: the pod's proxy forwards HTTP but not the
+    // inbound UDP video needs, so without one the two ends never meet.
+    localStorage.setItem(
+      KEY,
+      JSON.stringify({ turnServers: [{ urls: 'turn:relay.example:3478', username: 'u', credential: 'c' }] }),
+    );
+    expect(loadConfig().turnServers).toEqual([
+      { urls: 'turn:relay.example:3478', username: 'u', credential: 'c' },
+    ]);
+  });
+
+  it('survives a malformed list rather than taking the app down', () => {
+    localStorage.setItem(KEY, '{"turnServers": "not-an-array"}');
+    expect(loadConfig().turnServers).toEqual([]);
+  });
+});
+
+describe('turning the AI engine off', () => {
+  it('treats an explicit null as "no engine", where empty means "use the built-in"', () => {
+    // These have to differ. Empty is what a half-filled setup form leaves
+    // behind and must not wipe a working install; null is someone saying they
+    // do not want the engine at all, and nothing else can express that once a
+    // default ships in the build.
+    localStorage.setItem(KEY, JSON.stringify({ diffusionUrl: null }));
+    expect(loadConfig().diffusionUrl).toBe('');
+
+    localStorage.setItem(KEY, JSON.stringify({ diffusionUrl: '' }));
+    expect(loadConfig().diffusionUrl).toBe(BUILT_IN_DIFFUSION_URL);
   });
 });

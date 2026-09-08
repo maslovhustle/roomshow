@@ -25,6 +25,7 @@
 //     block holds trivially.
 
 import { BUILT_IN_DIFFUSION_URL } from '../config';
+import { Upscaler } from './upscale';
 import type { AiStatus, Params, Stylizer } from '../types';
 
 /**
@@ -93,7 +94,12 @@ interface OfferResponse {
 }
 
 export class ScopeStylizer implements Stylizer {
-  private ctx: CanvasRenderingContext2D | null = null;
+  /**
+   * The picture arrives at 832x480 and lands on a wall. How it gets there is
+   * the difference between a projection that looks in focus and one that does
+   * not, so it goes through a proper upscale rather than a canvas blit.
+   */
+  private upscaler: Upscaler | null = null;
   /**
    * The outbound frame buffer. Everything the stage can show — a phone track, a
    * laptop camera, a screen share, the procedural shapes — is a TexImageSource
@@ -146,7 +152,8 @@ export class ScopeStylizer implements Stylizer {
   }
 
   init(): void {
-    this.ctx = this.canvas.getContext('2d');
+    this.upscaler = new Upscaler(this.canvas);
+    this.upscaler.init();
     this.feedCtx = this.feed.getContext('2d');
     this.feed.width = SEND_WIDTH;
     this.feed.height = SEND_HEIGHT;
@@ -381,27 +388,17 @@ export class ScopeStylizer implements Stylizer {
     this.sourceSize = { w: width || 1, h: height || 1 };
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- the canvas follows the model, not the window
-  resize(_width: number, _height: number): void {
-    // Deliberately ignores the window.
-    //
-    // The shader renders at the display's own resolution, so it takes the
-    // window's. This engine does not: the picture arrives at whatever size the
-    // model produces, and blowing it up into a 1920-wide backing store only to
-    // let CSS scale that to the screen resamples it twice. The first of those
-    // is a plain bilinear stretch in canvas, and it is what made the projected
-    // image look soft.
-    //
-    // Sizing the canvas to the frame instead leaves exactly one scale, done by
-    // the compositor on the way to the screen. CSS already stretches this
-    // element edge to edge, so the picture still fills the wall.
+  resize(width: number, height: number): void {
+    // Back to the display's resolution, now that something worth doing happens
+    // at it. Sizing to the frame avoided a bad stretch by leaving the work to
+    // the compositor, which only does bilinear; rendering the upscale here
+    // instead means one scale, done well, straight to the pixels on the wall.
+    this.canvas.width = width;
+    this.canvas.height = height;
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- shader params do not apply
   render(_params: Params, _timeSeconds: number): void {
-    const ctx = this.ctx;
-    if (!ctx) return;
-
     // Outbound: fill the frame rather than fit inside it. Both the camera and
     // the model's own training resolution are landscape, so the crop is
     // slight — and every pixel spent on a black bar is a pixel the model
@@ -416,15 +413,9 @@ export class ScopeStylizer implements Stylizer {
     }
 
     // Inbound: whatever the model has produced most recently. Before the first
-    // frame arrives the video has no dimensions, and drawing it would throw.
+    // frame arrives the video has no dimensions, and sampling it would throw.
     if (this.sink.videoWidth === 0) return;
-    // One pixel of canvas per pixel of model output. Any other size is a
-    // resample, and there is already one waiting on the way to the screen.
-    if (this.canvas.width !== this.sink.videoWidth) {
-      this.canvas.width = this.sink.videoWidth;
-      this.canvas.height = this.sink.videoHeight;
-    }
-    ctx.drawImage(this.sink, 0, 0);
+    this.upscaler?.draw(this.sink);
   }
 
   private teardown(): void {
@@ -442,6 +433,7 @@ export class ScopeStylizer implements Stylizer {
 
   dispose(): void {
     this.closing = true;
+    this.upscaler?.dispose();
     window.clearTimeout(this.reconnectTimer);
     this.teardown();
     this.set('off');

@@ -46,7 +46,10 @@ for ((attempt = 1; attempt <= ATTEMPTS; attempt++)); do
   URL="https://$POD-8000.proxy.runpod.net"
   echo "   pod $POD, waiting for it to answer"
 
-  if ! wait_http "$URL/health" 45; then
+  # 8 minutes, not 15. A healthy box answers in about five; anything longer is
+  # a container that will never start, and every minute spent hoping otherwise
+  # is billed. Three dead pods in a row cost more than half a dollar in waiting.
+  if ! wait_http "$URL/health" 24; then
     echo "   never came up, deleting"; api -X DELETE "$API/$POD" >/dev/null; continue
   fi
 

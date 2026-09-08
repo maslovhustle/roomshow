@@ -266,13 +266,35 @@ export class ScopeStylizer implements Stylizer {
       // deleted days ago. Naming the host turns all three into one glance.
       const reason = error instanceof Error ? error.message : 'unreachable';
       const host = this.base.replace(/^https?:\/\//, '');
-      // A saved endpoint that no longer answers is the likeliest cause by far,
+
+      // A saved endpoint that no longer answers is by far the likeliest cause,
       // because a rented pod is replaced far more often than a browser breaks —
-      // and the working address is sitting right there in the build, overridden.
-      const stale = BUILT_IN_DIFFUSION_URL && this.base !== BUILT_IN_DIFFUSION_URL;
+      // and the address that does work is sitting right there in the build,
+      // overridden by a value someone typed once and forgot.
+      //
+      // So fall back to it rather than only advising it. Telling an operator to
+      // go and reset a setting is not help when the room is already full; this
+      // has cost three separate evenings of chasing a GPU that was fine. The
+      // override still wins whenever it answers, and the switch is announced,
+      // so nobody is left wondering which box they are talking to.
+      if (BUILT_IN_DIFFUSION_URL && this.base !== BUILT_IN_DIFFUSION_URL) {
+        this.base = BUILT_IN_DIFFUSION_URL;
+        this.set(
+          'offline',
+          `${host} did not answer — falling back to the endpoint this build ships with.`,
+        );
+        this.teardown();
+        window.clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = window.setTimeout(() => void this.connect(), RECONNECT_MS);
+        return;
+      }
+
+      // "Check that the box is running" is only good advice when the box might
+      // not be. If it answered well enough to refuse us, say what it said.
+      const answered = reason.startsWith('offer rejected');
       this.retry(
-        stale
-          ? `Cannot reach the AI engine at ${host} (${reason}). That is a saved endpoint — this build ships with a different one. Reset it on the home page under "AI engine".`
+        answered
+          ? `The AI engine at ${host} refused the connection: ${reason.replace('offer rejected ', '').replace(/^\(|\)$/g, '')}.`
           : `Cannot reach the AI engine at ${host} (${reason}). Check that the GPU box is running.`,
       );
     }
@@ -287,6 +309,29 @@ export class ScopeStylizer implements Stylizer {
    * got is what lets a failure name its own cause.
    */
   private relayed = false;
+
+  /**
+   * Why the server refused, when it can say.
+   *
+   * A box that is up but has not finished loading its model rejects every
+   * offer, and "offer rejected (400)" alongside "check that the GPU box is
+   * running" is doubly unhelpful: the box is plainly running, and there is
+   * nothing to do but wait a quarter of an hour. Fetching a fresh pod's models
+   * takes that long, and someone will otherwise spend it debugging.
+   */
+  private async why(): Promise<string> {
+    try {
+      const res = await fetch(this.url('/api/v1/pipeline/status'));
+      const body = (await res.json()) as { status?: string; loading_stage?: string | null };
+      if (body.status === 'loaded') return '';
+      if (body.status === 'loading') {
+        return `, still loading its model${body.loading_stage ? `: ${body.loading_stage}` : ''}`;
+      }
+      return ', its model is not loaded yet';
+    } catch {
+      return '';
+    }
+  }
 
   /** Scope takes candidates in batches on the session, so each is its own PATCH. */
   private async sendCandidate(candidate: RTCIceCandidateInit): Promise<void> {
@@ -344,7 +389,7 @@ export class ScopeStylizer implements Stylizer {
         },
       }),
     });
-    if (!res.ok) throw new Error(`offer rejected (${res.status})`);
+    if (!res.ok) throw new Error(`offer rejected (${res.status}${await this.why()})`);
     return (await res.json()) as OfferResponse;
   }
 

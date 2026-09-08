@@ -51,6 +51,15 @@ against 1.85 at the right resolution — the same footage, the same prompt.
 at this resolution when a previous pipeline was still resident. Restart the
 server before loading if you hit that.
 
+## Frame interpolation
+
+The browser asks for `streamdiffusionv2` and `rife` as a chain, so both must be
+loaded. RIFE synthesises a frame between each pair the model produces, which is
+cheap next to a diffusion step and makes the difference between a picture that
+arrives in clumps and one that moves: over the same thirty seconds of the same
+footage, 9 frames arrived without it and 46 with, and the receive buffer fell
+from 0.29s to 0.01s.
+
 ## The relay
 
 Scope fetches TURN credentials from `turn.fastrtc.org`, **a domain that no longer

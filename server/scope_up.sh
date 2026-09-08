@@ -21,6 +21,7 @@ WIDTH="${SCOPE_WIDTH:-832}"
 HEIGHT="${SCOPE_HEIGHT:-480}"
 VAE="${SCOPE_VAE:-lighttae}"
 PIPELINE=streamdiffusionv2
+INTERPOLATOR=rife
 API=https://rest.runpod.io/v1/pods
 ATTEMPTS="${SCOPE_ATTEMPTS:-4}"
 
@@ -78,13 +79,20 @@ while :; do
   sleep 30
 done
 
+# RIFE is a few tens of megabytes and arrives in seconds, unlike the model.
+curl -fsS -m 30 -X POST "$URL/api/v1/models/download" \
+  -H 'Content-Type: application/json' -d "{\"pipeline_id\":\"$INTERPOLATOR\"}" >/dev/null
+
 echo "== loading the pipeline at ${WIDTH}x${HEIGHT}"
 # node_id matches the pipeline id because that is the name the browser asks for
 # in initialParameters.pipeline_ids; anything else and the session starts with
 # no model attached.
 curl -fsS -m 60 -X POST "$URL/api/v1/pipeline/load" -H 'Content-Type: application/json' -d "{
-  \"pipelines\":[{\"node_id\":\"$PIPELINE\",\"pipeline_id\":\"$PIPELINE\",
-    \"load_params\":{\"width\":$WIDTH,\"height\":$HEIGHT,\"vae_type\":\"$VAE\"}}]}" >/dev/null
+  \"pipelines\":[
+    {\"node_id\":\"$PIPELINE\",\"pipeline_id\":\"$PIPELINE\",
+      \"load_params\":{\"width\":$WIDTH,\"height\":$HEIGHT,\"vae_type\":\"$VAE\"}},
+    {\"node_id\":\"$INTERPOLATOR\",\"pipeline_id\":\"$INTERPOLATOR\",
+      \"load_params\":{\"width\":$WIDTH,\"height\":$HEIGHT}}]}" >/dev/null
 while :; do
   ST=$(curl -fsS -m 20 "$URL/api/v1/pipeline/status" | jqp "(d.get('status'), d.get('error'))")
   case "$ST" in

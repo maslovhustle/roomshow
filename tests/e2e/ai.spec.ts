@@ -68,15 +68,46 @@ test.describe('the AI engine', () => {
   });
 
   test('offers every style once a stage reports an engine', async ({ page }) => {
-    await page.addInitScript((url) => {
-      localStorage.setItem('roomshow.config', JSON.stringify({ transport: 'local', diffusionUrl: url }));
-    }, UNREACHABLE);
-
-    // The remote learns the engine exists only from the stage, so one has to be
-    // running: BroadcastChannel carries the state between the two documents.
-    const stage = await page.context().newPage();
-    await stage.goto('/stage.html?code=PROM');
+    await page.addInitScript((cfg) => {
+      localStorage.setItem('roomshow.config', JSON.stringify(cfg));
+    }, NO_ENGINE);
     await page.goto('/remote.html?code=PROM');
+
+    // A stand-in for the stage rather than a real one.
+    //
+    // The remote learns the engine exists only from a broadcast state, and a
+    // real stage pointed at an unreachable endpoint only passes through
+    // `connecting` on its way to `offline`. Catching that window is a race —
+    // it held on a laptop and lost in CI.
+    //
+    // The stub owns the state the way the stage does: it answers `hello`, and
+    // it applies a patch and rebroadcasts the result. Repeating a fixed state
+    // on a timer instead would keep overwriting the engine the operator just
+    // picked, which is its own race and cost a second red build.
+    await page.evaluate(() => {
+      const channel = new BroadcastChannel('roomshow:PROM');
+      const state: Record<string, unknown> = {
+        engine: 'shader',
+        aiStatus: 'live',
+        aiDetail: '',
+        prompt: '',
+        aiStrength: 0.35,
+        preset: 'comic',
+        intensity: 0.65,
+        source: 'shapes',
+        mirror: 0,
+        audio: false,
+        recording: false,
+      };
+      const announce = () =>
+        channel.postMessage({ t: 'state', from: 'stage', at: Date.now(), state: { ...state } });
+      channel.onmessage = (event: MessageEvent) => {
+        const message = event.data as { t?: string; patch?: Record<string, unknown> };
+        if (message.t === 'patch') Object.assign(state, message.patch);
+        if (message.t === 'patch' || message.t === 'hello') announce();
+      };
+      announce();
+    });
 
     const ai = page.locator('[data-engine="ai"]');
     await expect(ai).toBeEnabled({ timeout: 20_000 });
